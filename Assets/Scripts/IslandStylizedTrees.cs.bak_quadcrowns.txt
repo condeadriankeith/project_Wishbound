@@ -1,0 +1,289 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using static TerrainMath;
+
+// Stylized low-poly forest: clumped (noise-driven) tree groves, bushes as undergrowth,
+// GPU-instanced with a flat-shaded toon foliage shader.
+public class IslandStylizedTrees : MonoBehaviour
+{
+    public int seed = 4242;
+    public float spacing = 7f;
+    public float minHeight = 3f, maxHeight = 240f;
+    public float minSlopeY = 0.78f;
+    public float forestLow = 0.36f, forestHigh = 0.56f, sparse = 0.07f;
+    public float minScale = 0.9f, maxScale = 1.7f;
+    public bool addBushes = true, addColliders = true;
+
+    class Variant
+    {
+        public Mesh mesh; public Material leaf;
+        public List<Matrix4x4> m = new List<Matrix4x4>();
+        public List<Matrix4x4[]> chunks = new List<Matrix4x4[]>();
+        public List<int> counts = new List<int>();
+    }
+    Variant[] vars;
+    Material trunkMat;
+
+    IEnumerator Start()
+    {
+        MeshFilter mf = null;
+        while (true)
+        {
+            var ib = IslandBuilder.Instance;
+            if (ib != null) { mf = ib.GetComponent<MeshFilter>(); if (mf != null && mf.sharedMesh != null && mf.sharedMesh.vertexCount > 0) break; }
+            yield return null;
+        }
+        var sh = Resources.Load<Shader>("IslandToonFoliage");
+        if (sh == null) { Debug.LogError("[IslandStylizedTrees] Shader Assets/Resources/IslandToonFoliage missing."); yield break; }
+        var fs = Resources.Load<Shader>("IslandFluffyFoliage"); trunkMat = Mk(sh, new Color(0.55f, 0.38f, 0.26f));
+        vars = new[]
+        {
+            new Variant { mesh = BuildRound(1), leaf = Mk(fs, new Color(0.36f, 0.68f, 0.2f)) },
+            new Variant { mesh = BuildRound(2), leaf = Mk(fs, new Color(0.6f, 0.78f, 0.22f)) },
+            new Variant { mesh = BuildPine(),   leaf = Mk(fs, new Color(0.13f, 0.46f, 0.3f)) },
+            new Variant { mesh = BuildBush(),   leaf = Mk(fs, new Color(0.42f, 0.72f, 0.22f)) },
+        };
+        Scatter(mf.sharedMesh);
+    }
+
+    Material Mk(Shader sh, Color c)
+    {
+        var m = new Material(sh); m.enableInstancing = true; m.SetColor("_Tint", c); return m;
+    }
+
+    bool Ok(double x, double z, Color[] cols, out float h)
+    {
+        h = Hf(x, z);
+        if (h < minHeight || h > maxHeight) return false;
+        int vi = Mathf.Clamp(Mathf.RoundToInt((float)((x + E) / S)), 0, N);
+        int vj = Mathf.Clamp(Mathf.RoundToInt((float)((z + E) / S)), 0, N);
+        Color c = cols[vj * V + vi];
+        if (!(c.g > c.b + 0.04f)) return false;
+        return NV(x, z).y >= minSlopeY;
+    }
+
+    float Forest(double x, double z, double e)
+    {
+        float fx = (float)(x + e), fz = (float)(z + e);
+        return Mathf.PerlinNoise(fx * 0.005f + seed * 0.37f, fz * 0.005f) * 0.65f
+             + Mathf.PerlinNoise(fx * 0.02f + 50f, fz * 0.02f + 50f) * 0.35f;
+    }
+
+    void Scatter(Mesh mesh)
+    {
+        var cols = mesh.colors;
+        var rng = new System.Random(seed);
+        double e = E;
+        int G = Mathf.CeilToInt((float)(2 * e / spacing));
+        var tp = new Vector2[G * G];
+        var has = new bool[G * G];
+        GameObject cgo = null;
+        if (addColliders) cgo = new GameObject("TreeColliders");
+        int trees = 0, bushes = 0;
+
+        for (int gz = 0; gz < G; gz++)
+        for (int gx = 0; gx < G; gx++)
+        {
+            double x = -e + (gx + 0.15 + rng.NextDouble() * 0.7) * spacing;
+            double z = -e + (gz + 0.15 + rng.NextDouble() * 0.7) * spacing;
+            float r1 = (float)rng.NextDouble(), r2 = (float)rng.NextDouble(), r3 = (float)rng.NextDouble(), r4 = (float)rng.NextDouble();
+            float h;
+            if (!Ok(x, z, cols, out h)) continue;
+            float dens = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(forestLow, forestHigh, Forest(x, z, e)));
+            if (r1 > dens * 0.95f + sparse) continue;
+
+            float tn = Mathf.PerlinNoise((float)(x + e) * 0.012f + 200f, (float)(z + e) * 0.012f);
+            int vi = (tn > 0.62f || (h > 90f && r2 < 0.8f)) ? 2 : (r2 < 0.5f ? 0 : 1);
+            float s = Mathf.Lerp(minScale, maxScale, r3) * (0.85f + dens * 0.3f);
+            Vector3 pos = U(x, h - 0.3, z);
+            vars[vi].m.Add(Matrix4x4.TRS(pos, Quaternion.Euler(0, r4 * 360f, 0), Vector3.one * s));
+            tp[gz * G + gx] = new Vector2(pos.x, pos.z); has[gz * G + gx] = true;
+            trees++;
+            if (cgo != null)
+            {
+                var cc = cgo.AddComponent<CapsuleCollider>();
+                cc.radius = 0.7f * s; cc.height = 7f * s; cc.center = pos + Vector3.up * 3.5f * s;
+            }
+        }
+
+        if (addBushes)
+        {
+            float bs = 4.5f;
+            int BG = Mathf.CeilToInt((float)(2 * e / bs));
+            for (int gz = 0; gz < BG; gz++)
+            for (int gx = 0; gx < BG; gx++)
+            {
+                double x = -e + (gx + rng.NextDouble()) * bs;
+                double z = -e + (gz + rng.NextDouble()) * bs;
+                float r1 = (float)rng.NextDouble(), r3 = (float)rng.NextDouble(), r4 = (float)rng.NextDouble();
+                float h;
+                if (!Ok(x, z, cols, out h)) continue;
+                float dens = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(forestLow, forestHigh, Forest(x, z, e)));
+                if (r1 > 0.1f + 0.6f * dens) continue;
+                int cx = Mathf.Clamp((int)((x + e) / spacing), 0, G - 1), cz = Mathf.Clamp((int)((z + e) / spacing), 0, G - 1);
+                Vector3 pos = U(x, h - 0.2, z);
+                bool near = false;
+                for (int dz = -1; dz <= 1 && !near; dz++)
+                for (int dx = -1; dx <= 1 && !near; dx++)
+                {
+                    int ix = cx + dx, iz = cz + dz;
+                    if (ix < 0 || iz < 0 || ix >= G || iz >= G || !has[iz * G + ix]) continue;
+                    if ((tp[iz * G + ix] - new Vector2(pos.x, pos.z)).sqrMagnitude < 12f) near = true;
+                }
+                if (near) continue;
+                float s = Mathf.Lerp(0.8f, 1.9f, r3);
+                vars[3].m.Add(Matrix4x4.TRS(pos, Quaternion.Euler(0, r4 * 360f, 0), new Vector3(s * 1.2f, s, s * 1.2f)));
+                bushes++;
+            }
+        }
+
+        foreach (var v in vars)
+            for (int i = 0; i < v.m.Count; i += 1023)
+            {
+                int n = Mathf.Min(1023, v.m.Count - i);
+                v.chunks.Add(v.m.GetRange(i, n).ToArray()); v.counts.Add(n);
+            }
+        Debug.Log("[IslandStylizedTrees] " + trees + " trees, " + bushes + " bushes planted.");
+    }
+
+    void Update()
+    {
+        if (vars == null) return;
+        foreach (var v in vars)
+            for (int i = 0; i < v.chunks.Count; i++)
+            {
+                if (v.mesh.subMeshCount > 1)
+                {
+                    Graphics.DrawMeshInstanced(v.mesh, 0, trunkMat, v.chunks[i], v.counts[i], null, UnityEngine.Rendering.ShadowCastingMode.On, true);
+                    Graphics.DrawMeshInstanced(v.mesh, 1, v.leaf, v.chunks[i], v.counts[i], null, UnityEngine.Rendering.ShadowCastingMode.On, true);
+                }
+                else
+                    Graphics.DrawMeshInstanced(v.mesh, 0, v.leaf, v.chunks[i], v.counts[i], null, UnityEngine.Rendering.ShadowCastingMode.On, true);
+            }
+    }
+
+    // ---------- quad crowns: every quad is billboarded to the camera by the shader ----------
+    class MB
+    {
+        public List<Vector3> verts = new List<Vector3>(), nrm = new List<Vector3>();
+        public List<Color> cols = new List<Color>();
+        public List<Vector2> uv = new List<Vector2>(), uv1 = new List<Vector2>();
+        public List<int>[] t = { new List<int>(), new List<int>() };
+        void Add(Vector3 p, Vector3 n, Color c, Vector2 u, Vector2 u1) { verts.Add(p); nrm.Add(n); cols.Add(c); uv.Add(u); uv1.Add(u1); }
+        public void Tri(Vector3 a, Vector3 b, Vector3 c, Vector3 rp)
+        {
+            if (Vector3.Dot(Vector3.Cross(b - a, c - a), (a + b + c) / 3f - rp) < 0) { var tv = b; b = c; c = tv; }
+            Vector3 n = Vector3.Cross(b - a, c - a).normalized;
+            int i = verts.Count;
+            foreach (var p in new[] { a, b, c })
+            {
+                float g = Mathf.Lerp(0.6f, 0.95f, Mathf.Clamp01(p.y / 6f));
+                Add(p, n, new Color(g, g, g, 0), Vector2.zero, Vector2.zero);
+            }
+            t[0].Add(i); t[0].Add(i + 1); t[0].Add(i + 2);
+        }
+        public void Quad(Vector3 c, float size, float rot, Vector3 n, float shade, float sway)
+        {
+            int i = verts.Count;
+            var col = new Color(shade, shade, shade, Mathf.Clamp01(sway));
+            Vector2[] u = { new Vector2(0, 0), new Vector2(1, 0), new Vector2(1, 1), new Vector2(0, 1) };
+            for (int k = 0; k < 4; k++) Add(c, n, col, u[k], new Vector2(size, rot));
+            t[1].Add(i); t[1].Add(i + 2); t[1].Add(i + 1); t[1].Add(i); t[1].Add(i + 3); t[1].Add(i + 2);
+        }
+    }
+
+    static Mesh Bake(MB b)
+    {
+        var m = new Mesh { indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+        m.SetVertices(b.verts); m.SetNormals(b.nrm); m.SetColors(b.cols);
+        m.SetUVs(0, b.uv); m.SetUVs(1, b.uv1);
+        m.subMeshCount = 2;
+        m.SetTriangles(b.t[0], 0); m.SetTriangles(b.t[1], 1);
+        m.bounds = new Bounds(new Vector3(0, 10, 0), new Vector3(30, 40, 30));
+        return m;
+    }
+
+    static void Trunk(MB b, float h, float r0, float r1, int sides)
+    {
+        for (int i = 0; i < sides; i++)
+        {
+            float a0 = i * Mathf.PI * 2f / sides, a1 = (i + 1) * Mathf.PI * 2f / sides;
+            Vector3 p0 = new Vector3(Mathf.Cos(a0) * r0, 0, Mathf.Sin(a0) * r0), p1 = new Vector3(Mathf.Cos(a1) * r0, 0, Mathf.Sin(a1) * r0);
+            Vector3 q0 = new Vector3(Mathf.Cos(a0) * r1, h, Mathf.Sin(a0) * r1), q1 = new Vector3(Mathf.Cos(a1) * r1, h, Mathf.Sin(a1) * r1);
+            Vector3 ax = new Vector3(0, h * 0.5f, 0);
+            b.Tri(p0, q0, p1, ax);
+            b.Tri(p1, q0, q1, ax);
+        }
+    }
+
+    // fluffy ellipsoid volume: quads spread through a thick shell
+    static void Crown(MB b, Vector3 c, Vector3 radii, int count, float size, int sd, float height)
+    {
+        var r = new System.Random(sd * 7919 + 13);
+        float ga = Mathf.PI * (3f - Mathf.Sqrt(5f));
+        for (int i = 0; i < count; i++)
+        {
+            float y = 1f - 2f * (i + 0.5f) / count, rr = Mathf.Sqrt(1f - y * y), th = ga * i;
+            Vector3 d = new Vector3(Mathf.Cos(th) * rr, y, Mathf.Sin(th) * rr);
+            float k = 0.6f + 0.4f * (float)r.NextDouble();
+            Vector3 p = c + Vector3.Scale(d, radii) * k;
+            Vector3 n = (d + Vector3.up * 0.35f).normalized;
+            float shade = Mathf.Lerp(0.62f, 1.1f, d.y * 0.5f + 0.5f) * Mathf.Lerp(0.8f, 1f, k);
+            b.Quad(p, size * (0.8f + 0.5f * (float)r.NextDouble()), (float)r.NextDouble() * 6.28f, n, shade, p.y / height);
+        }
+    }
+
+    static Mesh BuildRound(int kind)
+    {
+        var b = new MB();
+        if (kind == 1)
+        {
+            Trunk(b, 6.5f, 0.7f, 0.38f, 6);
+            Crown(b, new Vector3(0, 9.5f, 0), new Vector3(5f, 4.2f, 5f), 110, 3.4f, 1, 16f);
+            Crown(b, new Vector3(3.4f, 7.8f, 0.8f), new Vector3(3.4f, 2.8f, 3.4f), 60, 3f, 2, 16f);
+            Crown(b, new Vector3(-2.8f, 8.2f, -1.6f), new Vector3(3.2f, 2.8f, 3.2f), 60, 3f, 3, 16f);
+            Crown(b, new Vector3(0.4f, 12.4f, 0.4f), new Vector3(3.2f, 2.6f, 3.2f), 55, 3f, 4, 16f);
+        }
+        else
+        {
+            Trunk(b, 8f, 0.6f, 0.34f, 6);
+            Crown(b, new Vector3(0, 10.5f, 0), new Vector3(4.2f, 4.2f, 4.2f), 90, 3.2f, 5, 18f);
+            Crown(b, new Vector3(2.2f, 8.4f, 0f), new Vector3(3f, 2.6f, 3f), 50, 2.8f, 6, 18f);
+            Crown(b, new Vector3(-2f, 12.2f, 0.5f), new Vector3(3f, 2.6f, 3f), 50, 2.8f, 7, 18f);
+            Crown(b, new Vector3(0, 14.4f, 0), new Vector3(2.6f, 2.4f, 2.6f), 40, 2.6f, 8, 18f);
+        }
+        return Bake(b);
+    }
+
+    static Mesh BuildPine()
+    {
+        var b = new MB();
+        Trunk(b, 4.5f, 0.6f, 0.4f, 6);
+        var r = new System.Random(99);
+        for (int L = 0; L < 4; L++)
+        {
+            float y0 = 3f + L * 3.6f, rad = 5.2f - L * 1.15f, hh = 5.2f - L * 0.2f;
+            int cnt = 46 - L * 9;
+            for (int i = 0; i < cnt; i++)
+            {
+                float t = (float)r.NextDouble(), a = (float)r.NextDouble() * 6.283f;
+                float rd = rad * (1f - t) * (0.55f + 0.45f * (float)r.NextDouble());
+                Vector3 p = new Vector3(Mathf.Cos(a) * rd, y0 + t * hh, Mathf.Sin(a) * rd);
+                Vector3 n = new Vector3(Mathf.Cos(a), 0.6f, Mathf.Sin(a)).normalized;
+                b.Quad(p, 2.7f - L * 0.2f, (float)r.NextDouble() * 6.28f, n, Mathf.Lerp(0.6f, 1.1f, t), p.y / 18f);
+            }
+        }
+        b.Quad(new Vector3(0, 3f + 3 * 3.6f + 4.9f, 0), 2f, 0f, Vector3.up, 1.1f, 0.9f);
+        return Bake(b);
+    }
+
+    static Mesh BuildBush()
+    {
+        var b = new MB();
+        Crown(b, new Vector3(0, 1.1f, 0), new Vector3(1.9f, 1.4f, 1.9f), 26, 1.7f, 31, 4f);
+        Crown(b, new Vector3(1.4f, 0.8f, 0.6f), new Vector3(1.3f, 1f, 1.3f), 14, 1.4f, 37, 4f);
+        Crown(b, new Vector3(-1.2f, 0.9f, -0.7f), new Vector3(1.2f, 1f, 1.2f), 14, 1.4f, 43, 4f);
+        return Bake(b);
+    }
+}

@@ -1,0 +1,82 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7f3514149a865b74cb0b3c583bb96dcf, type: 3}
+  m_Name: IslandParams
+  m_EditorClassIdentifier: Assembly-CSharp::IslandParams
+  heightmapRes: 4097
+  terrainSize: 1200
+  seabedDepth: 60
+  terrainHeight: 520
+  seed: 1337
+  worldScale: 1
+  meadowHeight: 4
+  meadowRadius: 360
+  beachRadius: 410
+  seabedRadius: 540
+  seabedFloor: 48
+  tiers:
+  - name: Chalk Wall 1
+    radius: 300
+    rise: 146
+    rampWidth: 24
+    rampStartDeg: -35
+    rampSweepDeg: 330
+    mouthLength: 10
+    squareness: 2
+    rotationDeg: 0
+    offset: {x: 0, y: 0}
+    gullyAmp: 5
+    gullyWavelength: 24
+    talusHeight: 4
+    talusLength: 14
+  - name: Chalk Wall 2
+    radius: 205
+    rise: 130
+    rampWidth: 22
+    rampStartDeg: -105
+    rampSweepDeg: 330
+    mouthLength: 10
+    squareness: 2
+    rotationDeg: 0
+    offset: {x: 10, y: 6}
+    gullyAmp: 5
+    gullyWavelength: 22
+    talusHeight: 4
+    talusLength: 12
+  - name: Chalk Wall 3
+    radius: 135
+    rise: 90
+    rampWidth: 20
+    rampStartDeg: -175
+    rampSweepDeg: 330
+    mouthLength: 10
+    squareness: 2
+    rotationDeg: 0
+    offset: {x: -8, y: 8}
+    gullyAmp: 4
+    gullyWavelength: 18
+    talusHeight: 3
+    talusLength: 10
+  - name: Summit Pillar
+    radius: 66
+    rise: 42
+    rampWidth: 12
+    rampStartDeg: -245
+    rampSweepDeg: 340
+    mouthLength: 8
+    squareness: 4
+    rotationDeg: 20
+    offset: {x: 6, y: -6}
+    gullyAmp: 2
+    gullyWavelength: 12
+    talusHeight: 2
+    talusLength: 6
