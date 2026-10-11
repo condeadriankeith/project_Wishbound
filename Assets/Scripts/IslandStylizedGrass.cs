@@ -170,7 +170,7 @@ public class IslandStylizedGrass : MonoBehaviour
         {
             double x = (rng.NextDouble() * 2 - 1) * E;
             double z = (rng.NextDouble() * 2 - 1) * E;
-            float h = Hf(x, z);
+            float h = Hm(x, z);   // rendered-mesh height: blades sit on visible ground
             if (h < minHeight || h > maxHeight) continue;
             int vi = Mathf.Clamp(Mathf.RoundToInt((float)((x + E) / S)), 0, N);
             int vj = Mathf.Clamp(Mathf.RoundToInt((float)((z + E) / S)), 0, N);

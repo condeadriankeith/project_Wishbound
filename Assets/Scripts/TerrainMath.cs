@@ -135,6 +135,24 @@ public static class TerrainMath
         return h;
     }
     public static float Hf(double x, double z) => (float)H(x, z);
+    /// <summary>Height of the RENDERED island mesh: exact triangle-plane sampling over IslandBuilder.HGrid
+    /// (which includes cliff smoothing), using the same diagonal as IslandBuilder's index buffer, so this
+    /// matches visible pixels bit-for-bit. Anything placed on the terrain (trees, grass, rocks, water) must
+    /// use this, not Hf: Hf is the analytic field and can differ by metres near smoothed/carved relief.</summary>
+    public static float Hm(double x, double z)
+    {
+        var g = IslandBuilder.HGrid;
+        if (g == null) return Hf(x, z);
+        int n = V;
+        double fx = (x + E) / S, fz = (z + E) / S;
+        int i = (int)Math.Floor(fx), j = (int)Math.Floor(fz);
+        if (i < 0 || j < 0 || i >= n - 1 || j >= n - 1) return Hf(x, z);
+        float tx = (float)(fx - i), tz = (float)(fz - j);
+        float a = g[j * n + i], b = g[j * n + i + 1], c = g[(j + 1) * n + i], d = g[(j + 1) * n + i + 1];
+        // mesh triangles are (a,b,c) and (b,d,c): diagonal b-c, i.e. the tx+tz=1 line
+        if (tx + tz <= 1f) return a + (b - a) * tx + (c - a) * tz;
+        return d + (c - d) * (1f - tx) + (b - d) * (1f - tz);
+    }
     public static Vector3 NV(double x, double z)
     {
         const double e = 1.4;

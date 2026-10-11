@@ -3,22 +3,16 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// River water that DRAPES over the real terrain mesh: every vertex sits 0.05..0.35 m above the ground, so it can never float or clip.
-/// Banks are found by marching outwards, the source fades in, the mouth fans into the sea, and rocks/pebbles line the banks.
+/// River water that DRAPES over the real terrain mesh: every vertex is CAPPED to just above the ground,
+/// so it can never float or climb banks. Edges tuck UNDER rising banks (hidden by the depth test) instead
+/// of riding up them; near-vertical falls hide the ribbon entirely (wet rock + foam + mist sell the drop);
+/// the source collapses to a point and fades in; the sea mouth rides AT sea level.
+/// Banks are found by marching outwards, and rocks/pebbles chain along the waterline.
 /// </summary>
 public static class RiverWater
 {
-    public static float GH(double x, double z)
-    {
-        var g = IslandBuilder.HGrid; int n = TerrainMath.V;
-        if (g == null) return TerrainMath.Hf(x, z);
-        double fx = (x + TerrainMath.E) / TerrainMath.S, fz = (z + TerrainMath.E) / TerrainMath.S;
-        int i = (int)Math.Floor(fx), j = (int)Math.Floor(fz);
-        if (i < 0 || j < 0 || i >= n - 1 || j >= n - 1) return TerrainMath.Hf(x, z);
-        float tx = (float)(fx - i), tz = (float)(fz - j);
-        float a = Mathf.Lerp(g[j * n + i], g[j * n + i + 1], tx), b = Mathf.Lerp(g[(j + 1) * n + i], g[(j + 1) * n + i + 1], tx);
-        return Mathf.Lerp(a, b, tz);
-    }
+    /// <summary>Height of the rendered mesh. All water/rock placement must use this, never the analytic field.</summary>
+    public static float GH(double x, double z) => TerrainMath.Hm(x, z);
 
     // walk outwards until the ground climbs 1.1 m above the channel floor (a bank) or maxW is reached
     static double March(double x, double z, double dx, double dz, double th0, double maxW)
@@ -28,6 +22,7 @@ public static class RiverWater
     }
 
     static void Smooth(double[] e) { for (int p = 0; p < 2; p++) { var c = (double[])e.Clone(); for (int m = 1; m < e.Length - 1; m++) e[m] = (c[m - 1] + 2 * c[m] + c[m + 1]) / 4; } }
+    static double Sm01(double u) { u = u < 0 ? 0 : u > 1 ? 1 : u; return u * u * (3 - 2 * u); }
 
     public static void Build(List<Vector3> V, List<Vector2> UV, List<Vector2> UV2, List<Color> C, List<int> T, out RiverCarve.Channel longest)
     {
@@ -45,10 +40,11 @@ public static class RiverWater
                 int a = Math.Max(0, m - 1), b = Math.Min(M - 1, m + 1);
                 double ds = Math.Max(0.01, c.s[b] - c.s[a]), sl = Math.Max(0, (c.bed[a] - c.bed[b]) / ds);
                 SP.Add((float)Math.Min(14, 1.2 + sl * 8)); FL.Add((float)Math.Min(1, Math.Max(0, (sl - 0.6) / 1.0)));
-                float ramp = c.lake ? 1f : Mathf.SmoothStep(0, 1, m / 10f);   // spring: source fades in and starts narrow
-                FD.Add(ramp); WS.Add(c.lake ? 1.0 : Mathf.Lerp(0.4f, 1f, ramp));
+                float ramp = c.lake ? 1f : Mathf.SmoothStep(0, 1, m / 12f);   // spring: fades in from a point
+                FD.Add(ramp); WS.Add(c.lake ? 1.0 : Mathf.Lerp(0.05f, 1f, ramp));
             }
-            if (c.bed[M - 1] < 1.0)   // reaches the sea: fan out into a fading mouth
+            bool toSea = c.bed[M - 1] < 1.0;
+            if (toSea)   // reaches the sea: fan out into a fading mouth
             {
                 int q = Math.Max(0, M - 4); double dx = c.x[M - 1] - c.x[q], dz = c.z[M - 1] - c.z[q], dl = Math.Sqrt(dx * dx + dz * dz);
                 if (dl > 1e-6)
@@ -58,12 +54,21 @@ public static class RiverWater
                 }
             }
             int N = X.Count;
-            var th = new double[N]; var yc = new double[N]; var eL = new double[N]; var eR = new double[N]; var tx = new double[N]; var tz = new double[N];
-            for (int m = 0; m < N; m++) { th[m] = GH(X[m], Z[m]); yc[m] = Math.Max(0.05, th[m] + 0.28); }
+            var th = new double[N]; var yc = new double[N]; var eL = new double[N]; var eR = new double[N]; var tx = new double[N]; var tz = new double[N]; var casc = new double[N];
+            for (int m = 0; m < N; m++) { th[m] = GH(X[m], Z[m]); yc[m] = Math.Max(0.05, th[m] + 0.32); }
             for (int p = 0; p < 3; p++) { var cc = (double[])yc.Clone(); for (int m = 1; m < N - 1; m++) yc[m] = (cc[m - 1] + 2 * cc[m] + cc[m + 1]) / 4; }
+            for (int m = 0; m < N; m++) yc[m] = Math.Max(yc[m], th[m] + 0.12);
+            // cascade mask from raw centreline grade: near-vertical spans hide the ribbon (wet rock + mist sell the fall)
             for (int m = 0; m < N; m++)
             {
-                yc[m] = Math.Max(yc[m], th[m] + 0.12);
+                int a = Math.Max(0, m - 1), b = Math.Min(N - 1, m + 1);
+                double grade = (th[a] - th[b]) / Math.Max(0.01, S[b] - S[a]);
+                casc[m] = Sm01((grade - 1.0) / 1.0);
+            }
+            Smooth(casc); Smooth(casc);
+            for (int m = 0; m < N; m++) { FD[m] *= (float)(1 - casc[m]); WS[m] *= 1 - 0.35 * casc[m]; }
+            for (int m = 0; m < N; m++)
+            {
                 int a = Math.Max(0, m - 1), b = Math.Min(N - 1, m + 1);
                 double ax = X[b] - X[a], az = Z[b] - Z[a], al = Math.Sqrt(ax * ax + az * az); if (al < 1e-6) { ax = 1; az = 0; al = 1; }
                 tx[m] = ax / al; tz[m] = az / al;
@@ -79,32 +84,43 @@ public static class RiverWater
                 {
                     double a2 = (k - (CS - 1) / 2.0) / ((CS - 1) / 2.0), off = a2 < 0 ? a2 * eL[m] : a2 * eR[m];
                     double px = X[m] - tz[m] * off, pz = Z[m] + tx[m] * off, tk = GH(px, pz);
-                    double y = Math.Max(Math.Min(yc[m] - 0.22 * a2 * a2, tk + 0.35), tk + 0.05);
-                    V.Add(TerrainMath.U(px, y, pz)); UV.Add(new Vector2((float)off, (float)S[m])); UV2.Add(new Vector2(FD[m], 0));
+                    // CAP ONLY: centre rides just above the bed, edges tuck to a thin film. Rising banks bury
+                    // the edge (depth test hides it) instead of growing a vertical curtain. Never floats.
+                    double cap = tk + (0.42 - 0.28 * Math.Abs(a2));
+                    double y = Math.Min(yc[m] - 0.26 * a2 * a2, cap);
+                    if (tk < 0.25) y = Math.Max(y, 0.14);   // estuary / sea mouth rides at sea level, never dives
+                    V.Add(TerrainMath.U(px, y, pz)); UV.Add(new Vector2((float)off, (float)S[m])); UV2.Add(new Vector2(FD[m], (float)casc[m]));
                     C.Add(new Color(SP[m] / 14f, 0, (float)Math.Abs(a2), FL[m]));
                 }
                 if (m < N - 1)
                 {
                     for (int k = 0; k < CS - 1; k++) { int i0 = baseI + m * CS + k, i1 = i0 + 1, i2 = i0 + CS, i3 = i2 + 1; T.Add(i0); T.Add(i2); T.Add(i1); T.Add(i1); T.Add(i2); T.Add(i3); }
-                    WaterField.Add(new WaterField.Seg { x0 = (float)X[m], z0 = (float)Z[m], x1 = (float)X[m + 1], z1 = (float)Z[m + 1], y0 = (float)yc[m], y1 = (float)yc[m + 1], w0 = (float)((eL[m] + eR[m]) * 0.5), w1 = (float)((eL[m + 1] + eR[m + 1]) * 0.5), v0 = SP[m], v1 = SP[m + 1] });
+                    // no phantom water: queryable only where the ribbon is actually visible
+                    float fdAvg = (FD[m] + FD[m + 1]) * 0.5f, cascAvg = (float)((casc[m] + casc[m + 1]) * 0.5);
+                    if (fdAvg > 0.08f && cascAvg < 0.7f)
+                        WaterField.Add(new WaterField.Seg { x0 = (float)X[m], z0 = (float)Z[m], x1 = (float)X[m + 1], z1 = (float)Z[m + 1], y0 = (float)yc[m], y1 = (float)yc[m + 1], w0 = (float)((eL[m] + eR[m]) * 0.5), w1 = (float)((eL[m + 1] + eR[m + 1]) * 0.5), v0 = SP[m], v1 = SP[m + 1] });
                 }
-                // rocks & pebbles: bank stones, shallows pebbles, rare mid-stream boulders; bigger around waterfalls
-                if (m < M && FD[m] > 0.3f)
+                // waterline pebble CHAINS + bank rocks: dense at the water's edge, biased to outer bends
+                if (m < M && FD[m] > 0.25f)
                 {
+                    int mn = Math.Min(N - 1, m + 1);
+                    double turn = tx[m] * tz[mn] - tz[m] * tx[mn];
+                    int outer = turn >= 0 ? 1 : -1;
                     for (int side = -1; side <= 1; side += 2)
                     {
                         double ext = side > 0 ? eR[m] : eL[m];
-                        if (rnd.NextDouble() < 0.5 + 0.3 * FL[m])
+                        int nPeb = 1 + (rnd.NextDouble() < 0.6 ? 1 : 0) + (side == outer && rnd.NextDouble() < 0.5 ? 1 : 0);
+                        for (int qp = 0; qp < nPeb; qp++)
                         {
-                            double off = side * ext * (0.92 + rnd.NextDouble() * 0.5);
-                            RiverRocks.Add(X[m] - tz[m] * off, Z[m] + tx[m] * off, (float)((0.16 + 0.5 * Math.Pow(rnd.NextDouble(), 2.2)) * (1 + FL[m] * 1.2)), rnd);
+                            double off = side * ext * (0.92 + 0.08 * qp + rnd.NextDouble() * 0.14);
+                            RiverRocks.Add(X[m] - tz[m] * off + (rnd.NextDouble() - 0.5) * 0.6, Z[m] + tx[m] * off + (rnd.NextDouble() - 0.5) * 0.6,
+                                (float)(0.05 + 0.11 * rnd.NextDouble() * rnd.NextDouble() + 0.05 * FL[m]), rnd);
                         }
-                        if (rnd.NextDouble() < 0.35)
-                            for (int q = 0; q < 3; q++)
-                            {
-                                double off = side * ext * (0.55 + 0.5 * rnd.NextDouble());
-                                RiverRocks.Add(X[m] - tz[m] * off + rnd.NextDouble(), Z[m] + tx[m] * off + rnd.NextDouble(), (float)(0.07 + 0.09 * rnd.NextDouble()), rnd);
-                            }
+                        if (rnd.NextDouble() < (0.28 + 0.35 * FL[m]) * (side == outer ? 1.6 : 1.0))
+                        {
+                            double off = side * ext * (1.05 + rnd.NextDouble() * 0.6);
+                            RiverRocks.Add(X[m] - tz[m] * off, Z[m] + tx[m] * off, (float)((0.15 + 0.5 * Math.Pow(rnd.NextDouble(), 2.2)) * (1 + FL[m])), rnd);
+                        }
                     }
                     if (rnd.NextDouble() < 0.025 && FL[m] < 0.3)
                     {
@@ -118,7 +134,20 @@ public static class RiverWater
             {
                 bool st = m < M && FL[m] > 0.4f;
                 if (st && m0 < 0) m0 = m;
-                if (!st && m0 >= 0) { int e = m - 1; if (yc[m0] - yc[e] > 4) WaterBuilder.Mist(X[e], yc[e], Z[e], (float)HW[e], (float)(yc[m0] - yc[e])); m0 = -1; }
+                if (!st && m0 >= 0)
+                {
+                    int e = m - 1;
+                    if (yc[m0] - yc[e] > 4)
+                    {
+                        WaterBuilder.Mist(X[e], yc[e], Z[e], (float)HW[e], (float)(yc[m0] - yc[e]));
+                        for (int q = 0; q < 5; q++)   // plunge-pool boulders at the falls base
+                        {
+                            double an = rnd.NextDouble() * 6.2832, rr = HW[e] + 1.5 + rnd.NextDouble() * 2.5;
+                            RiverRocks.Add(X[e] + Math.Cos(an) * rr, Z[e] + Math.Sin(an) * rr, (float)(0.4 + rnd.NextDouble() * 0.7), rnd);
+                        }
+                    }
+                    m0 = -1;
+                }
             }
         }
     }

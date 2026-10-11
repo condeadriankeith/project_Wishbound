@@ -37,7 +37,11 @@ public static class WaterBuilder
                 for (int s = 0; s < segs; s++)
                 {
                     float d = R * r / rings, an = s * Mathf.PI * 2f / segs;
-                    V.Add(TerrainMath.U(lx + Mathf.Cos(an) * d, lv, lz + Mathf.Sin(an) * d)); UV.Add(Vector2.zero); UV2.Add(Vector2.one);
+                    double wx = lx + Mathf.Cos(an) * d, wz = lz + Mathf.Sin(an) * d;
+                    double th = RiverWater.GH(wx, wz);
+                    // rim tucks onto the shore where ground rises above the lake; submerged verts stay at level
+                    double y = th > lv - 0.05 ? th + 0.15 : lv;
+                    V.Add(TerrainMath.U(wx, y, wz)); UV.Add(Vector2.zero); UV2.Add(Vector2.one);
                     C.Add(new Color(0, 1, Mathf.Clamp01((d - 0.7f * R) / (0.3f * R)), 0));
                 }
             for (int r = 0; r < rings; r++)
@@ -72,7 +76,7 @@ public static class WaterBuilder
 
     public static void Mist(double x, double y, double z, float w, float drop)
     {
-        var g = new GameObject("WaterfallMist"); g.transform.SetParent(root.transform, false);
+        var g = new GameObject("WaterfallMist"); if (root != null) g.transform.SetParent(root.transform, false);
         g.transform.position = TerrainMath.U(x, y + 1, z);
         var ps = g.AddComponent<ParticleSystem>(); ps.Stop();
         var main = ps.main; main.loop = true; main.startLifetime = new ParticleSystem.MinMaxCurve(1.5f, 2.8f);
@@ -98,7 +102,7 @@ public static class WaterBuilder
             int k = Mathf.Min(M - 1, m + i * 4);
             var g = GameObject.CreatePrimitive(PrimitiveType.Cylinder); g.name = "DemoLog"; g.transform.SetParent(root.transform, false);
             g.transform.localScale = new Vector3(0.5f, 1.3f, 0.5f);
-            g.transform.position = TerrainMath.U(c.x[k], c.bed[k] + c.depth[k] + 1.0, c.z[k]);
+            g.transform.position = TerrainMath.U(c.x[k], c.bed[k] + 0.45, c.z[k]);
             g.transform.rotation = Quaternion.Euler(0, i * 37f, 90);
             var rb = g.AddComponent<Rigidbody>(); rb.mass = 40; rb.angularDamping = 0.5f;
             g.AddComponent<Buoyant>();

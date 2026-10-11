@@ -76,7 +76,7 @@ public class IslandStylizedTrees : MonoBehaviour
 
     bool Ok(double x, double z, Color[] cols, out float h)
     {
-        h = Hf(x, z);
+        h = Hm(x, z);   // rendered-mesh height: never floats above / sinks into smoothed relief
         if (h < minHeight || h > maxHeight) return false;
         // Ask the shared Surface classifier what the ground IS (no more guessing from vertex colour):
         // trees only grow on living ground (Grass / Field), never on sand, dirt, paths, scree or cliff walls.

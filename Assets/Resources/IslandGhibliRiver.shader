@@ -61,18 +61,18 @@ Shader "Island/GhibliRiver"
     col = lerp(col, _Streak.rgb, step(0.70, n1 * 0.55 + n2 * 0.5) * 0.5);   // ripple streaks
     col = lerp(col, _Streak.rgb, step(0.78, n3) * 0.45 * (1.0 - lake));     // fast thin streaks
     col += step(0.92, vn(i.wp.xz * 3.0 + float2(t * 0.6, -t * 0.4))) * step(0.55, n1) * 0.45;   // sun glints
-    // shoreline foam from real depth: lapping band + outward pulsing ring (also wraps rocks and logs)
-    float sh = 1.0 - saturate(dd / 0.6);
-    float lap = 0.12 * sin(t * 1.6 + i.wp.x * 0.9 + i.wp.z * 0.7);
-    float foamShore = step(0.38, sh + (n2 - 0.5) * 0.4 + lap);
-    float ring = step(0.88, frac(sh * 2.2 - t * 0.3 + n1 * 0.3)) * step(0.15, sh) * 0.7;
-    float foamFall = fall * step(0.42, n1 * 0.5 + n2 * 0.6);
-    float foamEdge = step(0.93, edge + (n2 - 0.5) * 0.1);
-    float foam = saturate(max(max(max(foamShore, ring), foamFall), foamEdge));
-    col = lerp(col, _Foam.rgb, foam);
-    float a = lerp(0.40, 0.95, saturate(dd / 1.2));
-    a *= 1.0 - smoothstep(0.85, 1.0, edge) * 0.8;
-    a = max(a, foam * 0.95); a *= i.fade;
+     // shoreline foam from real depth: lapping band + outward pulsing ring (also wraps rocks and logs)
+     float sh = 1.0 - saturate(dd / 0.9);
+     float lap = 0.12 * sin(t * 1.6 + i.wp.x * 0.9 + i.wp.z * 0.7);
+     float foamShore = step(0.30, sh + (n2 - 0.5) * 0.45 + lap);
+     float ring = step(0.88, frac(sh * 2.2 - t * 0.3 + n1 * 0.3)) * step(0.15, sh) * 0.7;
+     float foamFall = fall * step(0.42, n1 * 0.5 + n2 * 0.6);
+     float foamEdge = step(0.90, edge + (n2 - 0.5) * 0.3);
+     float foam = saturate(max(max(max(foamShore, ring), foamFall), foamEdge));
+     col = lerp(col, _Foam.rgb, foam);
+     float a = lerp(0.22, 0.95, saturate(dd / 1.5));
+     a *= 1.0 - smoothstep(0.55, 1.0, edge) * 0.85;
+     a = max(a, foam * 0.85); a *= i.fade;
     return half4(col, a);
    }
    ENDHLSL

@@ -112,8 +112,9 @@ var idx = new int[N * N * 6];
             double mixG = Vn(x / 24, z / 24) * 0.65 + Vn(x * 0.15, z * 0.15) * 0.35;
             Color c = Color.Lerp(cG1, cG2, (float)mixG);
 
+            double wet = RiverCarve.WetAt(x, z);   // 1 in the channel -> 0 a few metres past the banks
             int fi = Surface.FieldIndex(x, z, h, ny);
-            if (fi >= 0) c = Color.Lerp(c, fields[fi], 0.78f);
+            if (fi >= 0 && wet < 0.4) c = Color.Lerp(c, fields[fi], 0.78f);
 
             double cliffW = Surface.CliffWeight(ny);
             if (cliffW > 0)
@@ -141,6 +142,14 @@ var idx = new int[N * N * 6];
                 // Smooth path transition near cliffs
                 float pathBlend = Mathf.Lerp(1f, 0.25f, (float)cliffW);
                 c = Color.Lerp(c, dirt, (float)(PathMap[k] * pathBlend));
+            }
+            if (wet > 0.01)
+            {
+                // damp bank: dark wet stone showing through grass/sand, fords stay wet
+                Color wetRock = new Color(0.40f, 0.36f, 0.29f);
+                c = Color.Lerp(c, wetRock, (float)(wet * 0.55));
+                float dk = 1f - (float)(wet * 0.18);
+                c.r *= dk; c.g *= dk; c.b *= dk;
             }
             c.a = 1;
             cols[k] = c;

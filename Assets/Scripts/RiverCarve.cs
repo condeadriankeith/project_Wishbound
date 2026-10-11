@@ -19,7 +19,7 @@ public static class RiverCarve
     }
 
     public static List<Channel> Channels = new List<Channel>();
-    public static List<Vector3> Falls = new List<Vector3>(); public static float[] Cut; public static int NR; public static int Hash;
+    public static List<Vector3> Falls = new List<Vector3>(); public static float[] Cut; public static float[] Wet; public static int NR; public static int Hash;
     static bool building;
 
     public static double Apply(double x, double z, double h)
@@ -33,6 +33,18 @@ public static class RiverCarve
     }
 
     static float Sm(double u) { u = u < 0 ? 0 : u > 1 ? 1 : u; return (float)(u * u * (3 - 2 * u)); }
+
+    /// <summary>0..1 river/lake wetness at (x,z): 1 inside the channel, fading to 0 a few metres past the
+    /// banks. Bilinear over the Wet raster built next to Cut. Used to paint damp banks.</summary>
+    public static double WetAt(double x, double z)
+    {
+        if (Wet == null) return 0;
+        double fx = (x + E) / Res, fz = (z + E) / Res;
+        if (fx < 0 || fz < 0 || fx >= NR - 1 || fz >= NR - 1) return 0;
+        int i = (int)fx, j = (int)fz, k = j * NR + i; float tx = (float)(fx - i), tz = (float)(fz - j);
+        float a = Wet[k] + (Wet[k + 1] - Wet[k]) * tx, b = Wet[k + NR] + (Wet[k + NR + 1] - Wet[k + NR]) * tx;
+        return a + (b - a) * tz;
+    }
     static void RunMin(double[] b) { for (int m = 1; m < b.Length; m++) b[m] = Math.Min(b[m], b[m - 1] - 1e-3); }
 
     public static void Build(int seed = 1337)
@@ -114,9 +126,9 @@ public static class RiverCarve
                 }
             }
 
-            // --- rasterise cut
+            // --- rasterise cut (+ wetness band for bank painting)
             NR = (int)Math.Ceiling(2 * E / Res) + 1;
-            var cut = new float[NR * NR]; var hc = new float[NR * NR];
+            var cut = new float[NR * NR]; var wet = new float[NR * NR]; var hc = new float[NR * NR];
             for (int k = 0; k < hc.Length; k++) hc[k] = float.NaN;
             foreach (var ch in Channels)
                 for (int m = 0; m < ch.x.Length - 1; m++)
@@ -141,6 +153,8 @@ public static class RiverCarve
                             double cap = hc[k] - bed; if (cap > 1.5) { double ar = TerrainMath.HRaw(x0 + t * vx, z0 + t * vz); cap = Math.Min(cap, Math.Max(0, ar - bed) + 1.5); }
  float cand = (float)(w * head * Math.Max(0, cap));
                             if (cand > cut[k]) cut[k] = cand;
+                            float ww = d <= hw ? 1f : 1f - Sm((d - hw) / Math.Max(0.5, bk + 2.5));
+                            if (ww > wet[k]) wet[k] = ww;
                         }
                 }
             if (FlowNet.LakeCell >= 0)
@@ -157,10 +171,12 @@ public static class RiverCarve
                         int k = j * NR + i; if (float.IsNaN(hc[k])) hc[k] = (float)TerrainMath.HRaw(qx, qz);
                         float cand = (float)(w * Math.Max(0, hc[k] - T));
                         if (cand > cut[k]) cut[k] = cand;
+                        float wl = d <= R ? 1f : 1f - Sm((d - R) / 6.0);
+                        if (wl > wet[k]) wet[k] = wl;
                     }
             }
     Falls.Clear(); foreach (var fc in Channels) { int m0 = -1; for (int m = 1; m <= fc.x.Length; m++) { bool st = m < fc.x.Length && (fc.bed[m - 1] - fc.bed[m]) / Math.Max(0.01, fc.s[m] - fc.s[m - 1]) > 1.0; if (st && m0 < 0) m0 = m - 1; if (!st && m0 >= 0) { double dr = fc.bed[m0] - fc.bed[m - 1]; if (dr > 4) Falls.Add(new Vector3((float)fc.x[m0], (float)dr, (float)fc.z[m0])); m0 = -1; } } }
-        Cut = cut;
+        Cut = cut; Wet = wet;
             unchecked { int hs = (int)2166136261u; for (int k = 0; k < cut.Length; k++) hs = (hs ^ (int)(cut[k] * 1000f)) * 16777619; Hash = hs; }
         }
         finally { building = false; }

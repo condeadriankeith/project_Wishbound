@@ -34,10 +34,10 @@ public static class WaterField
             float vx = bs.x1 - bs.x0, vz = bs.z1 - bs.z0, l = Mathf.Sqrt(vx * vx + vz * vz), sp = Mathf.Lerp(bs.v0, bs.v1, bt);
             o.surf = Mathf.Lerp(bs.y0, bs.y1, bt); o.kind = 1;
             o.flow = new Vector2(vx / l * sp, (TerrainMath.MirrorZ ? -vz : vz) / l * sp);
-            o.depth = Mathf.Max(0.05f, o.surf - TerrainMath.Hf(x, z)); return true;
+            o.depth = Mathf.Max(0.05f, o.surf - TerrainMath.Hm(x, z)); return true;
         }
-        if (lakeOn && (x - lx) * (x - lx) + (z - lz) * (z - lz) < lr * lr) { o.surf = ll; o.kind = 2; o.depth = Mathf.Max(0.05f, ll - TerrainMath.Hf(x, z)); return true; }
-        float h = TerrainMath.Hf(x, z);
+        if (lakeOn && (x - lx) * (x - lx) + (z - lz) * (z - lz) < lr * lr) { o.surf = ll; o.kind = 2; o.depth = Mathf.Max(0.05f, ll - TerrainMath.Hm(x, z)); return true; }
+        float h = TerrainMath.Hm(x, z);
         if (h < Sea) { o.surf = Sea; o.kind = 3; o.depth = Sea - h; return true; }
         return false;
     }
