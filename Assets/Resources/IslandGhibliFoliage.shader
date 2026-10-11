@@ -16,6 +16,7 @@ Shader "Island/GhibliFoliage"
         _LightGain ("Light gain", Float) = 1.6
         _RimStrength ("Rim strength", Range(0,1)) = 0.45
         _Sway ("Sway", Float) = 0.35
+        _Fade ("Fade", Float) = 1.0
     }
     SubShader
     {
@@ -38,7 +39,7 @@ Shader "Island/GhibliFoliage"
             CBUFFER_START(UnityPerMaterial)
                 float4 _Col0, _Col1, _Col2, _Col3;
                 float _Step1, _Step2, _Step3;
-                float _LightGain, _RimStrength, _Sway;
+                float _LightGain, _RimStrength, _Sway, _Fade;
             CBUFFER_END
 
             struct A { float4 pos : POSITION; float3 n : NORMAL; float4 col : COLOR; UNITY_VERTEX_INPUT_INSTANCE_ID };
@@ -62,6 +63,7 @@ Shader "Island/GhibliFoliage"
             half4 frag(V i) : SV_Target
             {
                 UNITY_SETUP_INSTANCE_ID(i);
+                clip(_Fade - 0.001);
                 Light l = GetMainLight(TransformWorldToShadowCoord(i.ws));
                 float3 n = normalize(i.n);
                 float3 v = normalize(GetCameraPositionWS() - i.ws);

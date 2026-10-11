@@ -23,6 +23,7 @@ Shader "Shader Graphs/StylizedGrass"
         _WindNoiseSpeed("Wind Noise Speed", Float) = 1.0
         _WindNoiseContrast("Wind Noise Contrast", Vector) = (0.3, 0.7, 0, 0)
         _WindHeight("Wind Height", Float) = 0.8
+        _Fade("Fade", Float) = 1.0
     }
     SubShader
     {
@@ -76,7 +77,13 @@ Shader "Shader Graphs/StylizedGrass"
                 float _WindNoiseSpeed;
                 float4 _WindNoiseContrast;
                 float _WindHeight;
+            float _Fade;
             CBUFFER_END
+
+            // Trample globals (set by GrassTrampleSystem each frame)
+            TEXTURE2D(_GrassTrampleTex); SAMPLER(sampler_GrassTrampleTex);
+            float4 _GrassTrampleOrigin; // xz world origin of the 128m window
+            float  _GrassTrampleSize;   // window size in metres
 
             float SG_GradientNoise(float2 uv)
             {
@@ -164,6 +171,25 @@ Shader "Shader Graphs/StylizedGrass"
                 // Since grass is small and mostly unrotated, adding world offset to world pos is fine.
                 worldPos += combinedXZ * rootPin;
 
+                // Trample displacement: bend blades in the stamped push direction.
+                // Only runs for blades inside the current 128m camera window.
+                if (_GrassTrampleSize > 0.0)
+                {
+                    float2 trampleUV = float2(
+                        (worldPos.x - _GrassTrampleOrigin.x) / _GrassTrampleSize,
+                        (worldPos.z - _GrassTrampleOrigin.y) / _GrassTrampleSize
+                    );
+                    if (all(trampleUV >= 0.0) && all(trampleUV <= 1.0))
+                    {
+                        half4 trample   = SAMPLE_TEXTURE2D_LOD(_GrassTrampleTex, sampler_GrassTrampleTex, trampleUV, 0);
+                        float press     = trample.b;
+                        float2 pushDir  = trample.rg * 2.0 - 1.0; // unpack 0..1 -> -1..1
+                        // Bend tip in push direction, scaled by press and root-pin mask
+                        worldPos.xz += pushDir * press * rootPin * 0.6;
+                        worldPos.y  -= press * rootPin * 0.3; // slight lean-down
+                    }
+                }
+
                 // Recompute clip pos from modified world pos
                 float4 clipPos = mul(UNITY_MATRIX_VP, float4(worldPos, 1.0));
                 #ifdef UNITY_INSTANCING_ENABLED
@@ -186,6 +212,8 @@ Shader "Shader Graphs/StylizedGrass"
 
                 float4 mainSample = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, uv);
                 clip(mainSample.a - _AlphaClip);
+                
+                clip(_Fade - 0.001);
 
                 // Near/far depth gradient
                 float viewDist = distance(_WorldSpaceCameraPos, worldPos);
@@ -230,6 +258,12 @@ Shader "Shader Graphs/StylizedGrass"
                 // If using terrain color, wind already in depthWind; ensure top includes wind highlight on tips
                 float3 finalColor = lerp(bottomSel, topColor, heightGrad);
                 finalColor += _BaseColor.rgb; // Base is black normally
+
+                // Clamp luminance so wind highlight + chalk terrain tint cannot saturate to white.
+                // Rec.709 luma weights.
+                float luma = dot(finalColor, float3(0.2126, 0.7152, 0.0722));
+                if (luma > 0.88)
+                    finalColor *= 0.88 / max(luma, 0.001);
 
                 finalColor = MixFog(finalColor, input.fogFactor);
                 return half4(finalColor, 1.0);

@@ -20,11 +20,29 @@ public class IslandStylizedGrass : MonoBehaviour
     public int seed = 777;
     public float minHeight = 1.5f;
     public float maxHeight = 330f;
-    public float minSlopeY = 0.35f;
-    public float minWidth = 1.8f, maxWidth = 2.8f;
-    public float minBladeHeight = 1.6f, maxBladeHeight = 2.8f;
+    // Minimum normal.y for grass planting. 0.85 ≈ 32° — keeps blades off cliff faces and edges.
+    public float minSlopeY = 0.85f;
+    // Vertices whose R, G and B are all above this threshold are chalk/stone — skip them.
+    public float chalkLuminanceThreshold = 0.82f;
+    // Radius in metres used to sample 4 neighbour normals. Blades near cliff edges are rejected
+    // even if the centre point itself is flat, because a neighbour will be steep.
+    public float cliffMarginMetres = 3f;
+    public float minWidth = 0.3f, maxWidth = 0.55f;
+    public float minBladeHeight = 0.25f, maxBladeHeight = 0.45f;
 
     [Header("Terrain-color bake")]
+    
+
+    [Header("Per-blade shadows")]
+    [Tooltip("Chunks within this distance of the camera cast real shadows; farther chunks skip the shadow pass.")]
+    public float shadowCastDistance = 28f;
+
+    [Header("Distance LOD")]
+    [Tooltip("Maximum distance at which grass blades are rendered. Beyond this, chunks are culled.")]
+    public float maxRenderDistance = 180f;
+    [Tooltip("Distance over which grass fades out (alpha fade). Set 0 to disable fading.")]
+    public float fadeDistance = 30f;
+
     public int colorTexSize = 512;
 
     Material grassMat;
@@ -33,8 +51,18 @@ public class IslandStylizedGrass : MonoBehaviour
     readonly List<Bounds> bnds = new();
     readonly Plane[] planes = new Plane[6];
 
-    void Start()
+    [SerializeField, HideInInspector] bool started;   // serialized: survives a script reload during Play
+    void Start() { if (!Application.isPlaying || !FindFirstObjectByType<IslandRuntimeLoader>()?.useBakedData == true) { Init(); started = true; } }
+    void OnEnable() { if (Application.isPlaying && started && grassMat == null) StartCoroutine(Reinit()); }
+    System.Collections.IEnumerator Reinit()
     {
+        while (IslandBuilder.Instance == null || IslandBuilder.Instance.PathMap == null) yield return null;
+        yield return null;
+        Init();
+    }
+    void Init()
+    {
+        chunks.Clear(); counts.Clear(); bnds.Clear();
         var ib = IslandBuilder.Instance;
         if (ib == null) { Debug.LogError("[IslandStylizedGrass] No IslandBuilder in scene."); return; }
         var mf = ib.GetComponent<MeshFilter>();
@@ -54,6 +82,41 @@ public class IslandStylizedGrass : MonoBehaviour
 
         Scatter(mf.sharedMesh);
         Debug.Log($"[IslandStylizedGrass] {Count()} blades planted.");
+    }
+
+    public void LoadBakedData(GrassScatterData data, Texture2D terrainColorTex)
+    {
+        chunks.Clear(); counts.Clear(); bnds.Clear();
+        var ib = IslandBuilder.Instance;
+        if (ib == null) { Debug.LogError("[IslandStylizedGrass] No IslandBuilder in scene."); return; }
+        var mf = ib.GetComponent<MeshFilter>();
+        if (mf == null || mf.sharedMesh == null) { Debug.LogError("[IslandStylizedGrass] Island mesh not built yet."); return; }
+        if (grassMesh == null || sourceMaterial == null) { Debug.LogError("[IslandStylizedGrass] Assign grassMesh + sourceMaterial."); return; }
+
+        // Clone the practiced material and retarget it to island space (920 m domain).
+        grassMat = new Material(sourceMaterial);
+        grassMat.name = "IslandStylizedGrass";
+        grassMat.enableInstancing = true;
+        grassMat.SetFloat("_TerrainSize", 920f);
+        grassMat.SetFloat("_TerrainOffset", 0.5f);
+        grassMat.SetTexture("_TerrainColorTex", terrainColorTex != null ? terrainColorTex : BakeColorTexture(mf.sharedMesh));
+        grassMat.SetColor("_ShadowColor", new Color(0.45f, 0.45f, 0.62f, 1f));
+
+        if (data != null && data.chunks != null)
+        {
+            foreach (var chunk in data.chunks)
+            {
+                chunks.Add(chunk.matrices);
+                counts.Add(chunk.count);
+                bnds.Add(chunk.bounds);
+            }
+            Debug.Log($"[IslandStylizedGrass] Loaded {data.TotalBlades()} baked grass blades in {data.chunks.Count} chunks.");
+        }
+        else
+        {
+            Scatter(mf.sharedMesh);
+            Debug.Log($"[IslandStylizedGrass] {Count()} blades planted (runtime).");
+        }
     }
 
     Texture2D BakeColorTexture(Mesh mesh)
@@ -100,10 +163,27 @@ public class IslandStylizedGrass : MonoBehaviour
             int vi = Mathf.Clamp(Mathf.RoundToInt((float)((x + E) / S)), 0, N);
             int vj = Mathf.Clamp(Mathf.RoundToInt((float)((z + E) / S)), 0, N);
             Color c = cols[vj * V + vi];
-            // green-dominant paint only: meadows, fields, moss. Rejects chalk, sand,
-            // reef, dirt (whitish transition blends fail the margin test too)
-            if (!(c.g > c.b + 0.04f)) continue;
-            if (NV(x, z).y < minSlopeY) continue;
+
+            // --- Grass mask: three conditions must all pass ---
+
+            // 1. Centre slope: normal.y must be mostly upward.
+            float normalY = NV(x, z).y;
+            if (normalY < minSlopeY) continue;
+
+            // 2. Cliff-edge margin: sample normals at 4 offsets around the candidate.
+            //    If any neighbour is steep, this point is too close to a cliff edge.
+            float m = cliffMarginMetres;
+            bool nearEdge = NV(x + m, z).y < minSlopeY
+                         || NV(x - m, z).y < minSlopeY
+                         || NV(x, z + m).y < minSlopeY
+                         || NV(x, z - m).y < minSlopeY;
+            if (nearEdge) continue;
+
+            // 3. Surface type: grass only on living ground; feathered at sand, steep ground and paths.
+            double pth = Surface.PathAt(x, z);
+            var st = Surface.Classify(x, z, h, normalY, pth);
+            double dens = Surface.GrassDensity(st, h, normalY, pth);
+            if (dens <= 0 || rng.NextDouble() > dens) continue;
             float w = minWidth + (float)rng.NextDouble() * (maxWidth - minWidth);
             float bh = minBladeHeight + (float)rng.NextDouble() * (maxBladeHeight - minBladeHeight);
             var rot = Quaternion.Euler(0, (float)rng.NextDouble() * 360f, 0);
@@ -133,16 +213,37 @@ public class IslandStylizedGrass : MonoBehaviour
 
     int Count() { int t = 0; foreach (var c in counts) t += c; return t; }
 
-    void Update()
+void Update()
     {
         if (grassMat == null || chunks.Count == 0) return;
         var cam = Camera.main; if (cam == null) return;
         GeometryUtility.CalculateFrustumPlanes(cam, planes);
+        Vector3 cp = cam.transform.position;
+        float sd2 = shadowCastDistance * shadowCastDistance;
+        float maxDist2 = maxRenderDistance * maxRenderDistance;
+        float fadeStart2 = (maxRenderDistance - fadeDistance) * (maxRenderDistance - fadeDistance);
         for (int i = 0; i < chunks.Count; i++)
         {
-            if (!GeometryUtility.TestPlanesAABB(planes, bnds[i])) continue;
-            Graphics.DrawMeshInstanced(grassMesh, 0, grassMat, chunks[i], counts[i],
-                null, UnityEngine.Rendering.ShadowCastingMode.Off, true);
+            var b = bnds[i];
+            float dist2 = b.SqrDistance(cp);
+            if (dist2 > maxDist2) continue;
+            bool near = dist2 < sd2;
+            // Far chunks outside the frustum are culled; near chunks stay submitted even when
+            // off-screen so blades behind/beside the camera still cast into the view.
+            if (!near && !GeometryUtility.TestPlanesAABB(planes, b)) continue;
+            
+            float fade = 1f;
+            if (fadeDistance > 0f && dist2 > fadeStart2)
+            {
+                float dist = Mathf.Sqrt(dist2);
+                fade = 1f - Mathf.Clamp01((dist - (maxRenderDistance - fadeDistance)) / fadeDistance);
+                if (fade <= 0f) continue;
+            }
+            
+            var mpb = new MaterialPropertyBlock();
+            mpb.SetFloat("_Fade", fade);
+            Graphics.DrawMeshInstanced(grassMesh, 0, grassMat, chunks[i], counts[i], mpb,
+                near ? UnityEngine.Rendering.ShadowCastingMode.On : UnityEngine.Rendering.ShadowCastingMode.Off, true);
         }
     }
 }

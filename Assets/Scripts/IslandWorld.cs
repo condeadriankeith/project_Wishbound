@@ -188,6 +188,17 @@ public class IslandWorld : MonoBehaviour
         director.cam = cam;
     }
 
+    public void OnIslandLoaded(Mesh islandMesh)
+    {
+        // Update camera far clip based on island bounds
+        var cam = Camera.main;
+        if (cam)
+        {
+            float maxDim = Mathf.Max(islandMesh.bounds.size.x, islandMesh.bounds.size.z);
+            cam.farClipPlane = Mathf.Max(6000, maxDim * 2);
+        }
+    }
+
     // ---------- helpers ----------
     GameObject PropMesh(Mesh mesh, Color color, Vector3 pos, Quaternion rot, Vector3 scale, string name = "prop", Transform parent = null, float wind = 0, bool vcolor = false)
     {

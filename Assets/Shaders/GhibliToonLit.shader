@@ -13,6 +13,10 @@ Shader "Ghibli/ToonLit"
         _WindStrength ("Wind Strength", Float) = 0
         [HDR] _EmissionColor ("Emission", Color) = (0,0,0,0)
         [Enum(UnityEngine.Rendering.CullMode)] _Cull ("Cull", Float) = 2
+        _Fade ("Fade", Float) = 1.0
+        _CliffSmoothness ("Cliff Normal Smoothness", Range(0,1)) = 0.5
+        _ShoreAA ("Shoreline Anti-Aliasing", Range(0,1)) = 0.5
+        _HeightSmooth ("Height-based Normal Smoothing", Range(0,1)) = 0.3
     }
     SubShader
     {
@@ -32,7 +36,7 @@ Shader "Ghibli/ToonLit"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
             half4 _Color, _RimColor, _EmissionColor;
-            float _UseVertexColor, _BrushScale, _BrushStrength, _RimStrength, _RimPower, _WindStrength;
+            float _UseVertexColor, _BrushScale, _BrushStrength, _RimStrength, _RimPower, _WindStrength, _Fade, _CliffSmoothness, _ShoreAA, _HeightSmooth;
             UNITY_INSTANCING_BUFFER_START(Props)
                 UNITY_DEFINE_INSTANCED_PROP(half4, _InstColor)
             UNITY_INSTANCING_BUFFER_END(Props)
@@ -64,6 +68,21 @@ Shader "Ghibli/ToonLit"
                 }
                 o.posWS = TransformObjectToWorld(p);
                 o.nWS = TransformObjectToWorldNormal(v.nOS);
+                
+                // Smooth cliff normals: blend with upward normal based on cliff steepness
+                float cliffSteep = 1.0 - saturate(o.nWS.y);
+                float3 upNormal = float3(0, 1, 0);
+                o.nWS = lerp(o.nWS, upNormal, cliffSteep * _CliffSmoothness * 0.3);
+                
+                // Height-based normal smoothing: use vertex color (height encoded in R/G/B) to detect elevation changes
+                if (_HeightSmooth > 0.0)
+                {
+                    // Vertex color R channel typically encodes height/biome
+                    float heightFactor = saturate(v.col.r * 2.0);
+                    float3 smoothedNormal = lerp(o.nWS, upNormal, heightFactor * _HeightSmooth * 0.2);
+                    o.nWS = lerp(o.nWS, smoothedNormal, _HeightSmooth);
+                }
+                
                 o.posCS = TransformWorldToHClip(o.posWS);
                 o.col = v.col;
                 o.fog = ComputeFogFactor(o.posCS.z);
@@ -72,6 +91,7 @@ Shader "Ghibli/ToonLit"
             half4 frag(Varyings i, FRONT_FACE_TYPE face : FRONT_FACE_SEMANTIC) : SV_Target
             {
                 UNITY_SETUP_INSTANCE_ID(i);
+                clip(_Fade - 0.001);
                 float3 N = normalize(i.nWS);
                 N = IS_FRONT_VFACE(face, N, -N);
                 half3 albedo = _Color.rgb * UNITY_ACCESS_INSTANCED_PROP(Props, _InstColor).rgb;
@@ -80,7 +100,17 @@ Shader "Ghibli/ToonLit"
                 albedo *= (1.0 - 0.5 * _BrushStrength) + _BrushStrength * br;
                 Light L = GetMainLight(TransformWorldToShadowCoord(i.posWS));
                 float v = saturate(dot(N, L.direction) * 0.5 + 0.5);
-                float ramp = v < 0.25 ? 0.3137 : v < 0.5 ? 0.5490 : v < 0.75 ? 0.8039 : 1.0;
+                
+                // Smooth toon ramp with configurable bands - reduces banding on cliffs
+                float smoothV = v;
+                if (_ShoreAA > 0.0)
+                {
+                    // Detect near-shoreline by vertex color (blue channel used for water proximity)
+                    float shoreProximity = saturate(1.0 - i.col.b * 2.0);
+                    smoothV = lerp(v, smoothstep(0.0, 1.0, v), shoreProximity * _ShoreAA);
+                }
+                
+                float ramp = smoothV < 0.25 ? 0.3137 : smoothV < 0.5 ? 0.5490 : smoothV < 0.75 ? 0.8039 : 1.0;
                 half3 direct = L.color * ramp * L.shadowAttenuation;
                 half3 hemi = lerp(_HemiGround.rgb, _HemiSky.rgb, N.y * 0.5 + 0.5) * _HemiIntensity;
                 half3 col = albedo * (direct + hemi) + _EmissionColor.rgb;

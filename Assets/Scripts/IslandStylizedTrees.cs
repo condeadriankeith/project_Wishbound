@@ -15,6 +15,12 @@ public class IslandStylizedTrees : MonoBehaviour
     public float minScale = 0.9f, maxScale = 1.6f;
     public bool addBushes = true, addColliders = true;
 
+    [Header("Distance LOD")]
+    [Tooltip("Maximum distance at which trees are rendered. Beyond this, chunks are culled.")]
+    public float maxRenderDistance = 300f;
+    [Tooltip("Distance over which trees fade out. Set 0 to disable fading.")]
+    public float fadeDistance = 50f;
+
     class Variant
     {
         public Mesh mesh; public Material leaf;
@@ -27,13 +33,18 @@ public class IslandStylizedTrees : MonoBehaviour
     readonly Plane[] planes = new Plane[6];
     Material trunkMat;
 
-    IEnumerator Start()
+    [SerializeField, HideInInspector] bool started;   // serialized: survives a script reload during Play
+    void Start() { if (!Application.isPlaying || !FindFirstObjectByType<IslandRuntimeLoader>()?.useBakedData == true) { StartCoroutine(StartRoutine()); started = true; } }
+    void OnEnable() { if (Application.isPlaying && started && vars == null) StartCoroutine(StartRoutine()); }
+
+    IEnumerator StartRoutine()
     {
+        started = true;
         MeshFilter mf = null;
         while (true)
         {
             var ib = IslandBuilder.Instance;
-            if (ib != null) { mf = ib.GetComponent<MeshFilter>(); if (mf != null && mf.sharedMesh != null && mf.sharedMesh.vertexCount > 0) break; }
+            if (ib != null && ib.PathMap != null) { mf = ib.GetComponent<MeshFilter>(); if (mf != null && mf.sharedMesh != null && mf.sharedMesh.vertexCount > 0) break; }
             yield return null;
         }
         var toon = Resources.Load<Shader>("IslandToonFoliage");
@@ -67,11 +78,12 @@ public class IslandStylizedTrees : MonoBehaviour
     {
         h = Hf(x, z);
         if (h < minHeight || h > maxHeight) return false;
-        int vi = Mathf.Clamp(Mathf.RoundToInt((float)((x + E) / S)), 0, N);
-        int vj = Mathf.Clamp(Mathf.RoundToInt((float)((z + E) / S)), 0, N);
-        Color c = cols[vj * V + vi];
-        if (!(c.g > c.b + 0.04f)) return false;
-        return NV(x, z).y >= minSlopeY;
+        // Ask the shared Surface classifier what the ground IS (no more guessing from vertex colour):
+        // trees only grow on living ground (Grass / Field), never on sand, dirt, paths, scree or cliff walls.
+        double ny = NV(x, z).y;
+        if (ny < minSlopeY) return false;
+        var st = Surface.Classify(x, z, h, ny, Surface.PathAt(x, z));
+        return st == SurfaceType.Grass || st == SurfaceType.Field;
     }
 
     float Forest(double x, double z, double e)
@@ -91,7 +103,7 @@ public class IslandStylizedTrees : MonoBehaviour
         var tp = new Vector2[G * G];
         var has = new bool[G * G];
         GameObject cgo = null;
-        if (addColliders) cgo = new GameObject("TreeColliders");
+        if (addColliders) { var oldC = GameObject.Find("TreeColliders"); if (oldC != null) Destroy(oldC); cgo = new GameObject("TreeColliders"); }
         int trees = 0, bushes = 0;
 
         for (int gz = 0; gz < G; gz++)
@@ -175,24 +187,89 @@ public class IslandStylizedTrees : MonoBehaviour
         Debug.Log("[IslandStylizedTrees] " + trees + " trees, " + bushes + " bushes planted.");
     }
 
+    public void LoadBakedData(TreeScatterData data)
+    {
+        if (data == null || data.variants == null) return;
+
+        var ib = IslandBuilder.Instance;
+        if (ib == null || ib.GetComponent<MeshFilter>()?.sharedMesh == null)
+        {
+            Debug.LogError("[IslandStylizedTrees] Island not built yet.");
+            return;
+        }
+
+        var toon = Resources.Load<Shader>("IslandToonFoliage");
+        var ghibli = Resources.Load<Shader>("IslandGhibliFoliage");
+        if (toon == null || ghibli == null) { Debug.LogError("[IslandStylizedTrees] Shaders missing in Assets/Resources."); return; }
+
+        trunkMat = new Material(toon) { enableInstancing = true };
+        trunkMat.SetColor("_Tint", new Color(0.85f, 0.66f, 0.48f));
+        trunkMat.SetColor("_ShadeColor", new Color(0.52f, 0.46f, 0.66f));
+
+        vars = new Variant[data.variants.Count];
+        for (int i = 0; i < data.variants.Count; i++)
+        {
+            var src = data.variants[i];
+            var mesh = Resources.Load<Mesh>(src.meshPath);
+            if (mesh == null)
+            {
+                // Fallback: rebuild mesh procedurally
+                mesh = (i < 2) ? BuildRound(i + 1) : (i == 2 ? BuildPine() : BuildBush());
+            }
+            vars[i] = new Variant
+            {
+                mesh = mesh,
+                leaf = src.leafMaterial,
+                chunks = new List<Matrix4x4[]>(),
+                counts = new List<int>(),
+                bnds = new List<Bounds>()
+            };
+            foreach (var chunk in src.chunks)
+            {
+                vars[i].chunks.Add(chunk.matrices);
+                vars[i].counts.Add(chunk.count);
+                vars[i].bnds.Add(chunk.bounds);
+            }
+        }
+
+        Debug.Log($"[IslandStylizedTrees] Loaded baked tree data: {data.variants.Count} variants.");
+    }
+
     void Update()
     {
         if (vars == null) return;
         var cam = Camera.main; if (cam == null) return;
         GeometryUtility.CalculateFrustumPlanes(cam, planes);
         Vector3 cp = cam.transform.position;
+        float maxDist2 = maxRenderDistance * maxRenderDistance;
+        float fadeStart2 = (maxRenderDistance - fadeDistance) * (maxRenderDistance - fadeDistance);
         foreach (var v in vars)
             for (int i = 0; i < v.chunks.Count; i++)
             {
+                float dist2 = v.bnds[i].SqrDistance(cp);
+                if (dist2 > maxDist2) continue;
+                
+                float fade = 1f;
+                if (fadeDistance > 0f && dist2 > fadeStart2)
+                {
+                    float dist = Mathf.Sqrt(dist2);
+                    fade = 1f - Mathf.Clamp01((dist - (maxRenderDistance - fadeDistance)) / fadeDistance);
+                    if (fade <= 0f) continue;
+                }
+
                 // keep anything on screen OR within shadow range so tree shadows never pop
-                if (!GeometryUtility.TestPlanesAABB(planes, v.bnds[i]) && v.bnds[i].SqrDistance(cp) > 100f * 100f) continue;
+                if (!GeometryUtility.TestPlanesAABB(planes, v.bnds[i]) && dist2 > 100f * 100f) continue;
+                
+                var mpb = new MaterialPropertyBlock();
+                mpb.SetFloat("_Fade", fade);
+                
                 if (v.mesh.subMeshCount > 1)
                 {
-                    Graphics.DrawMeshInstanced(v.mesh, 0, trunkMat, v.chunks[i], v.counts[i], null, UnityEngine.Rendering.ShadowCastingMode.On, true);
-                    Graphics.DrawMeshInstanced(v.mesh, 1, v.leaf, v.chunks[i], v.counts[i], null, UnityEngine.Rendering.ShadowCastingMode.On, true);
+                    Graphics.DrawMeshInstanced(v.mesh, 0, trunkMat, v.chunks[i], v.counts[i], mpb, UnityEngine.Rendering.ShadowCastingMode.On, true);
+                    Graphics.DrawMeshInstanced(v.mesh, 1, v.leaf, v.chunks[i], v.counts[i], mpb, UnityEngine.Rendering.ShadowCastingMode.On, true);
                 }
                 else
-                    Graphics.DrawMeshInstanced(v.mesh, 0, v.leaf, v.chunks[i], v.counts[i], null, UnityEngine.Rendering.ShadowCastingMode.On, true);
+                    Graphics.DrawMeshInstanced(v.mesh, 0, v.leaf, v.chunks[i], v.counts[i], mpb, UnityEngine.Rendering.ShadowCastingMode.On, true);
             }
     }
 

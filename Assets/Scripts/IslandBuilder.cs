@@ -6,15 +6,24 @@ using static TerrainMath;
 public class IslandBuilder : MonoBehaviour
 {
     public static IslandBuilder Instance;
-    public Texture2D HeightTex { get; private set; }
-    public float[] PathMap { get; private set; }
+    public Texture2D HeightTex { get; set; }
+    public float[] PathMap { get; set; }
 
     static Color C(uint hex) => new Color(((hex >> 16) & 255) / 255f, ((hex >> 8) & 255) / 255f, (hex & 255) / 255f, 1f);
+
+    [SerializeField, HideInInspector] bool wasBuilt;   // serialized: survives a script reload during Play
 
     void Awake()
     {
         Instance = this;
         Build();
+        wasBuilt = true;
+    }
+
+    // A script reload while playing wipes statics + runtime data (PathMap, Instance, height texture): rebuild so nothing goes missing.
+    void OnEnable()
+    {
+        if (Application.isPlaying && wasBuilt && PathMap == null) Build();
     }
 
     [ContextMenu("Build Island")]
@@ -85,32 +94,35 @@ public class IslandBuilder : MonoBehaviour
             double mixG = Vn(x / 24, z / 24) * 0.65 + Vn(x * 0.15, z * 0.15) * 0.35;
             Color c = Color.Lerp(cG1, cG2, (float)mixG);
 
-            if (h > 6 && ny > 0.85)
-            {
-                double fx = System.Math.Floor((x + 200) / 36), fz = System.Math.Floor((z + 200) / 30);
-                double hs = System.Math.Sin(fx * 127.1 + fz * 311.7) * 43758.5453;
-                double q = hs - System.Math.Floor(hs);
-                if (q > 0.32)
-                    c = Color.Lerp(c, fields[(int)System.Math.Floor(q * 13) % fields.Length], 0.78f);
-            }
+            int fi = Surface.FieldIndex(x, z, h, ny);
+            if (fi >= 0) c = Color.Lerp(c, fields[fi], 0.78f);
 
-            double cliffW = 1.0 - Sm(0.58, 0.82, ny);
+            double cliffW = Surface.CliffWeight(ny);
             if (cliffW > 0)
             {
                 double strata = Sm(0.35, 0.65, 0.5 + 0.5 * System.Math.Sin(h * 1.5 + Vn(x * 0.05, z * 0.05) * 6));
                 Color c2 = Color.Lerp(cW, cSt, (float)(strata * 0.75));
                 double moss = Sm(0.55, 0.85, Vn(x * 0.1 + h * 0.03, z * 0.1 + h * 0.04)) * 0.45 * (h > 15 ? 1 : 0.3);
                 c2 = Color.Lerp(c2, cMo, (float)moss);
-                c = Color.Lerp(c, c2, (float)cliffW);
+                // Smooth cliff transition using smoothstep for anti-aliased edges
+                float smoothCliffW = Mathf.SmoothStep(0f, 1f, (float)cliffW);
+                c = Color.Lerp(c, c2, smoothCliffW);
             }
 
-            c = Color.Lerp(c, cSa, (float)(Sm(3.2, 1.1, h) * (1 - cliffW)));
+            // Smooth shoreline transition - blend sand into water/grass near water level
+            float sandW = (float)Surface.SandWeight(h, cliffW);
+            float shoreBlend = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(1.0f, 3.0f, (float)h));
+            float smoothSandW = Mathf.Lerp(sandW, sandW * shoreBlend, shoreBlend);
+            c = Color.Lerp(c, cSa, smoothSandW);
+            
             c = Color.Lerp(c, cSb, (float)Sm(0.8, -8.0, h));
 
             if (PathMap != null && PathMap[k] > 0 && h > 1.2)
             {
                 Color dirt = Color.Lerp(cDi, cDi2, (float)Vn(x * 0.4, z * 0.4));
-                c = Color.Lerp(c, dirt, (float)(PathMap[k] * (1 - cliffW * 0.75)));
+                // Smooth path transition near cliffs
+                float pathBlend = Mathf.Lerp(1f, 0.25f, (float)cliffW);
+                c = Color.Lerp(c, dirt, (float)(PathMap[k] * pathBlend));
             }
             c.a = 1;
             cols[k] = c;

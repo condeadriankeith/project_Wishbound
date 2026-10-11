@@ -6,6 +6,7 @@ Shader "Island/ToonFoliage"
         _ShadeColor ("Shade Color", Color) = (0.38,0.42,0.62,1)
         _Bands ("Bands", Float) = 3
         _Sway ("Sway", Float) = 0.35
+        _Fade ("Fade", Float) = 1.0
     }
     SubShader
     {
@@ -30,6 +31,7 @@ Shader "Island/ToonFoliage"
                 float4 _ShadeColor;
                 float _Bands;
                 float _Sway;
+                float _Fade;
             CBUFFER_END
 
             struct A { float4 pos : POSITION; float3 n : NORMAL; float4 col : COLOR; UNITY_VERTEX_INPUT_INSTANCE_ID };
@@ -53,6 +55,7 @@ Shader "Island/ToonFoliage"
             half4 frag(V i) : SV_Target
             {
                 UNITY_SETUP_INSTANCE_ID(i);
+                clip(_Fade - 0.001);
                 Light l = GetMainLight(TransformWorldToShadowCoord(i.ws));
                 float3 n = normalize(i.n);
                 float t = saturate((dot(n, l.direction) * 0.5 + 0.5) * l.shadowAttenuation);

@@ -5,6 +5,8 @@ Shader "Ghibli/Ocean"
         _CDeep ("Deep", Color) = (0.0, 0.255, 0.471, 1)
         _CShal ("Shallow", Color) = (0.039, 0.620, 0.839, 1)
         _CShore ("Shore", Color) = (0.322, 0.965, 0.816, 1)
+        _ShoreSmooth ("Shore Smoothness", Range(0,1)) = 0.5
+        _FoamIntensity ("Foam Intensity", Range(0,2)) = 1.0
     }
     SubShader
     {
@@ -21,6 +23,7 @@ Shader "Ghibli/Ocean"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             TEXTURE2D(_GhibliHeightMap); SAMPLER(sampler_GhibliHeightMap);
             half4 _CDeep, _CShal, _CShore;
+            float _ShoreSmooth, _FoamIntensity;
             float3 _GhibliSunDirSrc;
             float4 _GhibliFogColor;
             float  _GhibliFogDensity;
@@ -54,12 +57,14 @@ Shader "Ghibli/Ocean"
                     1.0,
                     -(cos(p.y*0.09 - t*0.6)*0.07 + cos((p.x+p.y)*0.05 + t*0.5)*0.03) * 2.0));
                 float3 col = lerp(_CShal.rgb, _CDeep.rgb, Sm(1.5, 14.0, depth));
-                col = lerp(_CShore.rgb, col, Sm(0.0, 3.2, depth));
+                // Smoother shoreline transition
+                float shoreT = Sm(0.0, 3.2 * lerp(1.0, 2.0, _ShoreSmooth), depth);
+                col = lerp(_CShore.rgb, col, shoreT);
                 col += vn(p*0.25 + float2(t*0.2, -t*0.15)) * vn(p*0.4 - float2(t*0.15, t*0.2)) * 0.15 * (1.0 - Sm(1.0, 7.0, depth));
                 float wob = 0.5 + 0.5 * sin(t*0.7 + depth*1.8);
                 float foam = max(
                     Sm(2.8*(0.35+0.25*wob), 0.0, depth) * Sm(0.35, 0.65, vn(p*0.7 + t*0.12) + (1.0 - depth/2.8)*0.5),
-                    Sm(0.18 + 0.12*sin(t*1.0), 0.0, depth));
+                    Sm(0.18 + 0.12*sin(t*1.0), 0.0, depth)) * _FoamIntensity;
                 float3 v = normalize(camS - wS);
                 float3 sunS = normalize(_GhibliSunDirSrc);
                 float sp = smoothstep(0.5, 0.58, pow(max(dot(reflect(-sunS, n), v), 0.0), 80.0));
