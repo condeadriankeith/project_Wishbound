@@ -80,7 +80,7 @@ public static class RiverCarve
                     qa[o + i] = (i > 0 && (FlowNet.Sea[c] || (trunc && i == cl.Count - 1))) ? qa[o + i - 1] : FlowNet.Acc[c];
                 }
                 if (lake) qa[0] = qa[1];
-                for (int it = 0; it < 10; it++)
+                for (int it = 0; it < 3; it++)   // light Chaikin: keep the path in the valley (10x over-smoothed across spurs)
                 {
                     double ax = px[0], az = pz[0];
                     for (int i = 1; i < np - 1; i++)
@@ -104,6 +104,8 @@ public static class RiverCarve
                     ch.x[m] = px[seg] + (px[seg + 1] - px[seg]) * t; ch.z[m] = pz[seg] + (pz[seg + 1] - pz[seg]) * t; ch.s[m] = s;
                     double Q = (qa[seg] + (qa[seg + 1] - qa[seg]) * t) * cell * cell * FlowNet.Runoff; ch.q[m] = Q;
                     ch.hw[m] = 0.9 + 2.4 * Math.Sqrt(Q); ch.depth[m] = 0.4 + 1.2 * Math.Sqrt(Q); ch.bank[m] = 1.5 + 0.8 * ch.hw[m];
+                    // Bed is cut from the RAW field on purpose: FlowNet.Bed is Priority-Flood on raw HRaw, so the
+                    // channel follows the exact flow path and stays deterministic (no carve -> HGrid feedback loop).
                     ha[m] = TerrainMath.HRaw(ch.x[m], ch.z[m]);
                 }
                 var b = new double[M];
@@ -146,13 +148,26 @@ public static class RiverCarve
                             double dx = qx - (x0 + t * vx), dz = qz - (z0 + t * vz), d = Math.Sqrt(dx * dx + dz * dz);
                             double hw = ch.hw[m] + (ch.hw[m + 1] - ch.hw[m]) * t, bk = ch.bank[m] + (ch.bank[m + 1] - ch.bank[m]) * t;
                             if (d >= hw + bk) continue;
-                            double w = d <= hw ? 1 : 1 - Sm((d - hw) / bk);
                             int k = j * NR + i; if (float.IsNaN(hc[k])) hc[k] = (float)TerrainMath.HRaw(qx, qz);
                             double bed = ch.bed[m] + (ch.bed[m + 1] - ch.bed[m]) * t;
                             double head = ch.lake ? 1 : Sm((ch.s[m] + t * (ch.s[m + 1] - ch.s[m])) / 8);
-                            double cap = hc[k] - bed; if (cap > 1.5) { double ar = TerrainMath.HRaw(x0 + t * vx, z0 + t * vz); cap = Math.Min(cap, Math.Max(0, ar - bed) + 1.5); }
- float cand = (float)(w * head * Math.Max(0, cap));
-                            if (cand > cut[k]) cut[k] = cand;
+                            // --- valley cross-section --------------------------------------------------
+                            // Flat wetted floor down to the bed across the channel, then banks that ease
+                            // smoothly back onto the undisturbed terrain at the rim. fall is 1 inside the
+                            // channel (cut all the way to the bed) and 1-Sm(u) across the bank, so the sides
+                            // are graded: no vertical wall, no hard lip at the water's edge, and a tangent
+                            // merge with the raw ground at the outer rim. This replaces the old flat trench
+                            // + magic 1.5 m clamp, which benched a shelf partway up sloped banks and left a
+                            // hard step at the rim - a trench that ignored the terrain instead of a valley.
+                            double fall = d <= hw ? 1.0 : 1.0 - Sm((d - hw) / bk);
+                            // Bound the incision so a steep wall beside the channel can't be gouged into a
+                            // slot canyon: allow the channel's own depth plus a fixed bank allowance. On
+                            // ordinary ground this never binds, so the floor stays genuinely flat at the bed
+                            // and the valley follows the flow instead of floating on a bench.
+                            double depthHere = ch.depth[m] + (ch.depth[m + 1] - ch.depth[m]) * t;
+                            double gorge = depthHere + 4.0;
+                            double cutAmt = fall * head * Math.Max(0.0, Math.Min(hc[k] - bed, gorge));
+                            if (cutAmt > cut[k]) cut[k] = (float)cutAmt;
                             float ww = d <= hw ? 1f : 1f - Sm((d - hw) / Math.Max(0.5, bk + 2.5));
                             if (ww > wet[k]) wet[k] = ww;
                         }

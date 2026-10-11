@@ -22,6 +22,9 @@ public static class RiverWater
     }
 
     static void Smooth(double[] e) { for (int p = 0; p < 2; p++) { var c = (double[])e.Clone(); for (int m = 1; m < e.Length - 1; m++) e[m] = (c[m - 1] + 2 * c[m] + c[m + 1]) / 4; } }
+
+static void SmoothTail(double[] e, int from) { from = Math.Max(1, from); for (int p = 0; p < 6; p++) { var c = (double[])e.Clone(); for (int m = from; m < e.Length - 1; m++) e[m] = (c[m - 1] + 2 * c[m] + c[m + 1]) / 4; } }
+
     static double Sm01(double u) { u = u < 0 ? 0 : u > 1 ? 1 : u; return u * u * (3 - 2 * u); }
 
     public static void Build(List<Vector3> V, List<Vector2> UV, List<Vector2> UV2, List<Color> C, List<int> T, out RiverCarve.Channel longest)
@@ -34,23 +37,30 @@ public static class RiverWater
             if (longest == null || c.s[M - 1] > longest.s[longest.x.Length - 1]) longest = c;
             var rnd = new System.Random(1337 + c.river * 131);
             var X = new List<double>(c.x); var Z = new List<double>(c.z); var S = new List<double>(c.s); var HW = new List<double>(c.hw);
-            var SP = new List<float>(); var FL = new List<float>(); var FD = new List<float>(); var WS = new List<double>();
+            var SP = new List<float>(); var FL = new List<float>(); var FD = new List<float>(); var WS = new List<double>(); var MO = new List<float>();
             for (int m = 0; m < M; m++)
             {
                 int a = Math.Max(0, m - 1), b = Math.Min(M - 1, m + 1);
                 double ds = Math.Max(0.01, c.s[b] - c.s[a]), sl = Math.Max(0, (c.bed[a] - c.bed[b]) / ds);
                 SP.Add((float)Math.Min(14, 1.2 + sl * 8)); FL.Add((float)Math.Min(1, Math.Max(0, (sl - 0.6) / 1.0)));
                 float ramp = c.lake ? 1f : Mathf.SmoothStep(0, 1, m / 12f);   // spring: fades in from a point
-                FD.Add(ramp); WS.Add(c.lake ? 1.0 : Mathf.Lerp(0.05f, 1f, ramp));
+                FD.Add(ramp); WS.Add(c.lake ? 1.0 : Mathf.Lerp(0.05f, 1f, ramp)); MO.Add(0f);
             }
             bool toSea = c.bed[M - 1] < 1.0;
             if (toSea)   // reaches the sea: fan out into a fading mouth
             {
-                int q = Math.Max(0, M - 4); double dx = c.x[M - 1] - c.x[q], dz = c.z[M - 1] - c.z[q], dl = Math.Sqrt(dx * dx + dz * dz);
+                int q = Math.Max(0, M - 12); double dx = c.x[M - 1] - c.x[q], dz = c.z[M - 1] - c.z[q], dl = Math.Sqrt(dx * dx + dz * dz);   // long baseline = steady heading
                 if (dl > 1e-6)
                 {
-                    dx /= dl; dz /= dl; int K = 8;
-                    for (int p = 1; p <= K; p++) { X.Add(c.x[M - 1] + dx * 4 * p); Z.Add(c.z[M - 1] + dz * 4 * p); S.Add(c.s[M - 1] + 4 * p); HW.Add(c.hw[M - 1] * (1 + 0.3 * p)); SP.Add(SP[M - 1] * 0.7f); FL.Add(0); FD.Add(1f - (float)p / K); WS.Add(1.0); }
+                    dx /= dl; dz /= dl; const int K = 16; const double step = 3.5; double hw0 = c.hw[M - 1];
+                    for (int p = 1; p <= K; p++)
+                    {
+                        double u = (double)p / K, ease = Sm01(u);   // zero slope at the river end -> no kink, the funnel opens gradually
+                        X.Add(c.x[M - 1] + dx * step * p); Z.Add(c.z[M - 1] + dz * step * p); S.Add(c.s[M - 1] + step * p);
+                        HW.Add(hw0 * (1 + 2.6 * ease)); SP.Add(SP[M - 1] * (1f - 0.45f * (float)ease)); FL.Add(0);
+                        FD.Add(1f - (float)Sm01((u - 0.2) / 0.8));   // holds full strength, then dissolves smoothly to nothing at the tip
+                        WS.Add(1.0); MO.Add((float)ease);
+                    }
                 }
             }
             int N = X.Count;
@@ -72,11 +82,13 @@ public static class RiverWater
                 int a = Math.Max(0, m - 1), b = Math.Min(N - 1, m + 1);
                 double ax = X[b] - X[a], az = Z[b] - Z[a], al = Math.Sqrt(ax * ax + az * az); if (al < 1e-6) { ax = 1; az = 0; al = 1; }
                 tx[m] = ax / al; tz[m] = az / al;
-                double maxW = (m < M ? HW[m] * 1.15 + 0.5 : HW[m] * 1.8 + 1) * WS[m] * (1 - 0.35 * FL[m]);
+                double maxW = (HW[m] * 1.15 + 0.5) * WS[m] * (1 - 0.35 * FL[m]);   // same formula river + fan: no width jump at the junction
                 eR[m] = March(X[m], Z[m], -tz[m], tx[m], th[m], maxW);
                 eL[m] = March(X[m], Z[m], tz[m], -tx[m], th[m], maxW);
             }
+            for (int m = M; m < N; m++) { eL[m] = Math.Max(eL[m], eL[m - 1]); eR[m] = Math.Max(eR[m], eR[m - 1]); }   // the mouth only ever widens
             Smooth(eL); Smooth(eR);
+            if (N > M) { SmoothTail(eL, M - 10); SmoothTail(eR, M - 10); }
             int baseI = V.Count;
             for (int m = 0; m < N; m++)
             {
@@ -89,7 +101,7 @@ public static class RiverWater
                     double cap = tk + (0.42 - 0.28 * Math.Abs(a2));
                     double y = Math.Min(yc[m] - 0.26 * a2 * a2, cap);
                     if (tk < 0.25) y = Math.Max(y, 0.14);   // estuary / sea mouth rides at sea level, never dives
-                    V.Add(TerrainMath.U(px, y, pz)); UV.Add(new Vector2((float)off, (float)S[m])); UV2.Add(new Vector2(FD[m], (float)casc[m]));
+                    V.Add(TerrainMath.U(px, y, pz)); UV.Add(new Vector2((float)off, (float)S[m])); UV2.Add(new Vector2(FD[m], MO[m]));
                     C.Add(new Color(SP[m] / 14f, 0, (float)Math.Abs(a2), FL[m]));
                 }
                 if (m < N - 1)
@@ -139,7 +151,15 @@ public static class RiverWater
                     int e = m - 1;
                     if (yc[m0] - yc[e] > 4)
                     {
-                        WaterBuilder.Mist(X[e], yc[e], Z[e], (float)HW[e], (float)(yc[m0] - yc[e]));
+                        float fdrop = (float)(yc[m0] - yc[e]);
+                        float fwid = (float)Math.Max(HW[m0], HW[e]);
+                        WaterBuilder.Mist(X[e], yc[e], Z[e], fwid, fdrop);
+                        // Pull the curtain's lip a few sections UPSTREAM onto the still-visible ribbon so its top
+                        // overlaps flowing water instead of floating on bare cliff (the "top in mid-air" bug):
+                        // the smoothed cascade mask hides the ribbon before the steep lip m0, leaving a gap.
+                        int t = m0;
+                        for (int s = 0; s < 6 && t > 0 && casc[t - 1] < 0.75f; s++) t--;
+                        WaterBuilder.AddFall(X, yc, Z, t, e, fwid, fdrop);
                         for (int q = 0; q < 5; q++)   // plunge-pool boulders at the falls base
                         {
                             double an = rnd.NextDouble() * 6.2832, rr = HW[e] + 1.5 + rnd.NextDouble() * 2.5;

@@ -47,14 +47,22 @@ public class IslandBuilder : MonoBehaviour
                 tex[k] = new Color((float)Cl(-16, 20, hv), 0, 0, 1);
             }
 
-        // cliffSmooth: relax steep cells so cliff faces are rounded, not stair-stepped
+        // cliffSmooth: relax steep cells so cliff faces are rounded, not stair-stepped.
+        // A carved river channel is a local MINIMUM (the lowest cells around), so ordinary steep-cell
+        // smoothing would RAISE the valley floor back up and blur its banks - erasing the very carve that
+        // RiverWater drapes its ribbon over. That is why the carve used to disagree with the flow. Protect
+        // the whole channel + graded-bank corridor (WetAt > 0.25) so the valley survives to the mesh intact;
+        // terrain just outside the mask still smooths, blending the rim naturally into the raw ground.
+        var protect = new bool[V * V];
+        for (int j = 0; j < V; j++) for (int i = 0; i < V; i++)
+            protect[j * V + i] = RiverCarve.WetAt(-E + i * S, -E + j * S) > 0.25f;
 var h2 = new float[V * V];
 for (int pass = 0; pass < 3; pass++)
 {
  System.Array.Copy(h, h2, h.Length);
  for (int j = 1; j < V - 1; j++) for (int i = 1; i < V - 1; i++)
  {
-  int k = j * V + i; float c0 = h[k]; if (c0 < 2f) continue;
+  int k = j * V + i; float c0 = h[k]; if (c0 < 2f || protect[k]) continue;   // never smooth a carved cell
   float n1 = h[k - 1], n2 = h[k + 1], n3 = h[k - V], n4 = h[k + V];
   float mx = Mathf.Max(Mathf.Max(n1, n2), Mathf.Max(n3, n4)), mn = Mathf.Min(Mathf.Min(n1, n2), Mathf.Min(n3, n4));
   float st = Mathf.Clamp01((mx - mn - 1.5f) / 4f); if (st <= 0) continue;
