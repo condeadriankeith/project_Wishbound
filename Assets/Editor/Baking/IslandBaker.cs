@@ -218,7 +218,11 @@ public class IslandBaker : EditorWindow
             var counts = (List<int>)countsField.GetValue(v);
             var bnds = (List<Bounds>)bndsField.GetValue(v);
             var mesh = (Mesh)meshField.GetValue(v);
-            var leafMat = (Material)leafMatField.GetValue(v);
+            var leafMatRuntime = (Material)leafMatField.GetValue(v);
+            string matPath = $"{savePath}/TreeLeafMat_{scatterData.variants.Count}.mat";
+            var leafMat = AssetDatabase.LoadAssetAtPath<Material>(matPath);
+            if (leafMat == null) { leafMat = new Material(leafMatRuntime); AssetDatabase.CreateAsset(leafMat, matPath); }
+            else { EditorUtility.CopySerialized(leafMatRuntime, leafMat); EditorUtility.SetDirty(leafMat); }
 
             // Save tree meshes
             string meshName = $"TreeMesh_{scatterData.variants.Count}";

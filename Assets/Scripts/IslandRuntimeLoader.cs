@@ -41,6 +41,15 @@ public class IslandRuntimeLoader : MonoBehaviour
             var mc = ib.GetComponent<MeshCollider>();
             mf.sharedMesh = bakedIslandMesh;
             if (mc) mc.sharedMesh = bakedIslandMesh;
+            var isr = ib.GetComponent<MeshRenderer>();
+            if (isr != null && (isr.sharedMaterial == null || isr.sharedMaterial.shader == null || !isr.sharedMaterial.shader.isSupported))
+            {
+                var tsh = Shader.Find("Ghibli/ToonLit"); if (tsh == null) tsh = Shader.Find("Universal Render Pipeline/Lit");
+                var tmat = new Material(tsh);
+                tmat.SetColor("_Color", Color.white); tmat.SetColor("_InstColor", Color.white);
+                tmat.SetFloat("_UseVertexColor", 1);
+                isr.sharedMaterial = tmat;
+            }
 
             // Set global heightmap for ocean shader
             if (bakedHeightMap != null)

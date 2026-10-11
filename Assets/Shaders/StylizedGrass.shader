@@ -49,6 +49,7 @@ Shader "Shader Graphs/StylizedGrass"
             #pragma multi_compile _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile _ _SHADOWS_SOFT _SHADOWS_SOFT_LOW _SHADOWS_SOFT_MEDIUM _SHADOWS_SOFT_HIGH
             #pragma multi_compile_instancing
+            #pragma instancing_options procedural:GrassSetup
             #pragma instancing_options renderinglayer
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
@@ -124,7 +125,18 @@ Shader "Shader Graphs/StylizedGrass"
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
-            Varyings LitPassVertex(Attributes input)
+            #ifdef UNITY_PROCEDURAL_INSTANCING_ENABLED
+ StructuredBuffer<float4x4> _GrassMatrices;
+#endif
+ float _GrassStart;
+ void GrassSetup()
+ {
+#ifdef UNITY_PROCEDURAL_INSTANCING_ENABLED
+  unity_ObjectToWorld = _GrassMatrices[(uint)_GrassStart + unity_InstanceID];
+  unity_WorldToObject = unity_ObjectToWorld;
+#endif
+ }
+Varyings LitPassVertex(Attributes input)
             {
                 Varyings output = (Varyings)0;
                 UNITY_SETUP_INSTANCE_ID(input);
@@ -282,6 +294,7 @@ Shader "Shader Graphs/StylizedGrass"
             #pragma vertex ShadowPassVertex
             #pragma fragment ShadowPassFragment
             #pragma multi_compile_instancing
+            #pragma instancing_options procedural:GrassSetup
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Shadows.hlsl"
             TEXTURE2D(_MainTex); SAMPLER(sampler_MainTex);
@@ -292,7 +305,18 @@ Shader "Shader Graphs/StylizedGrass"
             struct Attributes { float4 positionOS : POSITION; float3 normalOS : NORMAL; float2 uv : TEXCOORD0; UNITY_VERTEX_INPUT_INSTANCE_ID };
             struct Varyings { float4 positionCS : SV_POSITION; float2 uv : TEXCOORD0; UNITY_VERTEX_INPUT_INSTANCE_ID };
             float3 _LightDirection;
-            Varyings ShadowPassVertex(Attributes input)
+            #ifdef UNITY_PROCEDURAL_INSTANCING_ENABLED
+ StructuredBuffer<float4x4> _GrassMatrices;
+#endif
+ float _GrassStart;
+ void GrassSetup()
+ {
+#ifdef UNITY_PROCEDURAL_INSTANCING_ENABLED
+  unity_ObjectToWorld = _GrassMatrices[(uint)_GrassStart + unity_InstanceID];
+  unity_WorldToObject = unity_ObjectToWorld;
+#endif
+ }
+Varyings ShadowPassVertex(Attributes input)
             {
                 Varyings o=(Varyings)0; UNITY_SETUP_INSTANCE_ID(input); UNITY_TRANSFER_INSTANCE_ID(input,o);
                 float3 posWS = TransformObjectToWorld(input.positionOS.xyz);
@@ -327,6 +351,7 @@ Shader "Shader Graphs/StylizedGrass"
             #pragma vertex DepthOnlyVertex
             #pragma fragment DepthOnlyFragment
             #pragma multi_compile_instancing
+            #pragma instancing_options procedural:GrassSetup
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             TEXTURE2D(_MainTex); SAMPLER(sampler_MainTex);
             CBUFFER_START(UnityPerMaterial)
@@ -334,7 +359,18 @@ Shader "Shader Graphs/StylizedGrass"
             CBUFFER_END
             struct Attributes { float4 positionOS:POSITION; float2 uv:TEXCOORD0; UNITY_VERTEX_INPUT_INSTANCE_ID };
             struct Varyings { float4 positionCS:SV_POSITION; float2 uv:TEXCOORD0; UNITY_VERTEX_INPUT_INSTANCE_ID };
-            Varyings DepthOnlyVertex(Attributes input){ Varyings o=(Varyings)0; UNITY_SETUP_INSTANCE_ID(input); UNITY_TRANSFER_INSTANCE_ID(input,o); o.positionCS=TransformObjectToHClip(input.positionOS.xyz); o.uv=TRANSFORM_TEX(input.uv,_MainTex); return o; }
+            #ifdef UNITY_PROCEDURAL_INSTANCING_ENABLED
+ StructuredBuffer<float4x4> _GrassMatrices;
+#endif
+ float _GrassStart;
+ void GrassSetup()
+ {
+#ifdef UNITY_PROCEDURAL_INSTANCING_ENABLED
+  unity_ObjectToWorld = _GrassMatrices[(uint)_GrassStart + unity_InstanceID];
+  unity_WorldToObject = unity_ObjectToWorld;
+#endif
+ }
+Varyings DepthOnlyVertex(Attributes input){ Varyings o=(Varyings)0; UNITY_SETUP_INSTANCE_ID(input); UNITY_TRANSFER_INSTANCE_ID(input,o); o.positionCS=TransformObjectToHClip(input.positionOS.xyz); o.uv=TRANSFORM_TEX(input.uv,_MainTex); return o; }
             half4 DepthOnlyFragment(Varyings input):SV_Target{ UNITY_SETUP_INSTANCE_ID(input); float a=SAMPLE_TEXTURE2D(_MainTex,sampler_MainTex,input.uv).a; clip(a-_AlphaClip); return 0; }
             ENDHLSL
         }

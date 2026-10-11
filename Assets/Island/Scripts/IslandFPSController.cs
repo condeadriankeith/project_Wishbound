@@ -52,7 +52,7 @@ public class IslandFPSController : MonoBehaviour
     bool flying, crouching, sprinting, wantLock = true;
     int skipLookFrames;
     float standHeight, bottomY, eyeStand, eyeCrouch;
-    Vector3 startPos; float startYaw;
+    Vector3 startPos; float startYaw, startPitch;
     GUIStyle style;
 
     // Double-jump fly toggle: tracks time since the last Space press so a
@@ -76,6 +76,7 @@ public class IslandFPSController : MonoBehaviour
 
         startPos = transform.position;
         startYaw = transform.eulerAngles.y;
+        if (cam) { startPitch = Mathf.DeltaAngle(0f, cam.localEulerAngles.x); pitch = startPitch; }
         fovCurrent = horizontalFov;
         SetCursorLocked(true);
     }
@@ -272,7 +273,8 @@ public class IslandFPSController : MonoBehaviour
         cc.enabled = false;                       // CharacterController ignores transform writes while enabled
         transform.SetPositionAndRotation(pos, Quaternion.Euler(0f, yaw, 0f));
         cc.enabled = true;
-        vy = 0f; hVel = Vector3.zero; flyVel = Vector3.zero; pitch = 0f;
+        vy = 0f; hVel = Vector3.zero; flyVel = Vector3.zero; pitch = startPitch;
+        if (cam) cam.localRotation = Quaternion.Euler(pitch, 0f, 0f);
     }
 
     // ---------------------------------------------------------------- HUD

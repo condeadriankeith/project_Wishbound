@@ -52,7 +52,14 @@ public class IslandStylizedGrass : MonoBehaviour
     readonly Plane[] planes = new Plane[6];
 
     [SerializeField, HideInInspector] bool started;   // serialized: survives a script reload during Play
-    void Start() { if (!Application.isPlaying || !FindFirstObjectByType<IslandRuntimeLoader>()?.useBakedData == true) { Init(); started = true; } }
+    void Start()
+    {
+        if (!Application.isPlaying) { Init(); started = true; return; }
+        var ldr = FindFirstObjectByType<IslandRuntimeLoader>();
+        if (ldr != null && ldr.useBakedData && ldr.grassScatterData != null) return; // baked grass loaded by loader
+        started = true;
+        StartCoroutine(Reinit());
+    }
     void OnEnable() { if (Application.isPlaying && started && grassMat == null) StartCoroutine(Reinit()); }
     System.Collections.IEnumerator Reinit()
     {
@@ -213,9 +220,24 @@ public class IslandStylizedGrass : MonoBehaviour
 
     int Count() { int t = 0; foreach (var c in counts) t += c; return t; }
 
-void Update()
+GraphicsBuffer matBuf; Matrix4x4[] builtFor; int[] starts;
+    void BuildBuffer()
+    {
+        matBuf?.Release();
+        int total = 0; starts = new int[chunks.Count];
+        for (int i = 0; i < chunks.Count; i++) { starts[i] = total; total += counts[i]; }
+        var all = new Matrix4x4[total];
+        for (int i = 0; i < chunks.Count; i++) System.Array.Copy(chunks[i], 0, all, starts[i], counts[i]);
+        matBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, total, 64);
+        matBuf.SetData(all);
+        grassMat.SetBuffer("_GrassMatrices", matBuf);
+        builtFor = chunks[0];
+    }
+    void OnDisable() { matBuf?.Release(); matBuf = null; }
+    MaterialPropertyBlock mpb; void Update()
     {
         if (grassMat == null || chunks.Count == 0) return;
+        if (matBuf == null || builtFor != chunks[0]) BuildBuffer();
         var cam = Camera.main; if (cam == null) return;
         GeometryUtility.CalculateFrustumPlanes(cam, planes);
         Vector3 cp = cam.transform.position;
@@ -240,9 +262,9 @@ void Update()
                 if (fade <= 0f) continue;
             }
             
-            var mpb = new MaterialPropertyBlock();
+            if (mpb == null) mpb = new MaterialPropertyBlock(); mpb.Clear(); mpb.SetFloat("_GrassStart", starts[i]);
             mpb.SetFloat("_Fade", fade);
-            Graphics.DrawMeshInstanced(grassMesh, 0, grassMat, chunks[i], counts[i], mpb,
+            Graphics.DrawMeshInstancedProcedural(grassMesh, 0, grassMat, b, counts[i], mpb,
                 near ? UnityEngine.Rendering.ShadowCastingMode.On : UnityEngine.Rendering.ShadowCastingMode.Off, true);
         }
     }

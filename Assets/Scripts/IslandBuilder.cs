@@ -47,7 +47,24 @@ public class IslandBuilder : MonoBehaviour
                 tex[k] = new Color((float)Cl(-16, 20, hv), 0, 0, 1);
             }
 
-        var idx = new int[N * N * 6];
+        // cliffSmooth: relax steep cells so cliff faces are rounded, not stair-stepped
+var h2 = new float[V * V];
+for (int pass = 0; pass < 3; pass++)
+{
+ System.Array.Copy(h, h2, h.Length);
+ for (int j = 1; j < V - 1; j++) for (int i = 1; i < V - 1; i++)
+ {
+  int k = j * V + i; float c0 = h[k]; if (c0 < 2f) continue;
+  float n1 = h[k - 1], n2 = h[k + 1], n3 = h[k - V], n4 = h[k + V];
+  float mx = Mathf.Max(Mathf.Max(n1, n2), Mathf.Max(n3, n4)), mn = Mathf.Min(Mathf.Min(n1, n2), Mathf.Min(n3, n4));
+  float st = Mathf.Clamp01((mx - mn - 1.5f) / 4f); if (st <= 0) continue;
+  float avg = (n1 + n2 + n3 + n4) * 0.125f + (h[k - V - 1] + h[k - V + 1] + h[k + V - 1] + h[k + V + 1]) * 0.0625f + c0 * 0.25f;
+  h2[k] = Mathf.Lerp(c0, avg, 0.75f * st);
+ }
+ System.Array.Copy(h2, h, h.Length);
+}
+for (int j = 0; j < V; j++) for (int i = 0; i < V; i++) { int k = j * V + i; double wx = -E + i * S, wz = -E + j * S; pos[k] = U(wx, h[k], wz); tex[k] = new Color((float)Cl(-16, 20, h[k]), 0, 0, 1); }
+var idx = new int[N * N * 6];
         int n = 0;
         for (int j = 0; j < N; j++)
             for (int i = 0; i < N; i++)
