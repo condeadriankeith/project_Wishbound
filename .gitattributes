@@ -1,0 +1,1 @@
+Assets/Resources/BakedIslandData/*.asset filter=lfs diff=lfs merge=lfs -text
