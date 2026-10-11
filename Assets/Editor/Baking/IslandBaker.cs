@@ -277,9 +277,17 @@ public class IslandBaker : EditorWindow
     public static void BakeAll()
     {
         BakeIsland();
+        BakeTreeScatter();
+        Debug.Log("[IslandBaker] All baking complete (grass excluded — runs at runtime)!");
+    }
+
+    [MenuItem("Tools/Island/Bake All (With Grass)")]
+    public static void BakeAllWithGrass()
+    {
+        BakeIsland();
         BakeGrassScatter();
         BakeTreeScatter();
-        Debug.Log("[IslandBaker] All baking complete!");
+        Debug.Log("[IslandBaker] All baking complete with grass!");
     }
 
     static Texture2D CreatePathMapTexture(float[] pathMap)
