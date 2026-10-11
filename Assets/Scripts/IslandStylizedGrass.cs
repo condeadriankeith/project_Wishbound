@@ -51,9 +51,13 @@ public class IslandStylizedGrass : MonoBehaviour
     readonly List<Bounds> bnds = new();
     readonly Plane[] planes = new Plane[6];
 
+    // ===== STYLIZED GRASS MASTER TOGGLE =====
+    // Set to true to bring stylized grass back (it is OFF for fast load times). Search the project for GRASS_ENABLED.
+    public const bool GRASS_ENABLED = false;
     [SerializeField, HideInInspector] bool started;   // serialized: survives a script reload during Play
     void Start()
     {
+        if (!GRASS_ENABLED) return;   // grass toggled off (see GRASS_ENABLED)
         if (!Application.isPlaying) { Init(); started = true; return; }
         var ldr = FindFirstObjectByType<IslandRuntimeLoader>();
         if (ldr != null && ldr.useBakedData && ldr.grassScatterData != null) return; // baked grass loaded by loader
@@ -93,6 +97,7 @@ public class IslandStylizedGrass : MonoBehaviour
 
     public void LoadBakedData(GrassScatterData data, Texture2D terrainColorTex)
     {
+        if (!GRASS_ENABLED) return;
         chunks.Clear(); counts.Clear(); bnds.Clear();
         var ib = IslandBuilder.Instance;
         if (ib == null) { Debug.LogError("[IslandStylizedGrass] No IslandBuilder in scene."); return; }

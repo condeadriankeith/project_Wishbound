@@ -16,13 +16,17 @@ public class IslandRuntimeLoader : MonoBehaviour
     public TreeScatterData treeScatterData;
 
     [Header("Settings")]
-    public bool useBakedData = true;
+    // ===== RUNTIME vs BAKED TOGGLE =====
+    // FORCE_RUNTIME_GENERATION = true: island/trees are generated at Play (no baked data). Set false to use baked data again.
+    public const bool FORCE_RUNTIME_GENERATION = true;
+    public bool useBakedData = false;
     public bool autoLoadOnStart = true;
 
     [SerializeField] bool dataLoaded = false;
 
     void Awake()
     {
+        if (FORCE_RUNTIME_GENERATION) useBakedData = false;
         if (autoLoadOnStart && useBakedData)
             LoadBakedData();
     }

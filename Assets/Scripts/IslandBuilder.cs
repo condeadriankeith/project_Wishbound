@@ -11,7 +11,7 @@ public class IslandBuilder : MonoBehaviour
 
     static Color C(uint hex) => new Color(((hex >> 16) & 255) / 255f, ((hex >> 8) & 255) / 255f, (hex & 255) / 255f, 1f);
 
-    [SerializeField, HideInInspector] bool wasBuilt;   // serialized: survives a script reload during Play
+    [SerializeField, HideInInspector] bool wasBuilt; public static float[] HGrid;   // serialized: survives a script reload during Play
 
     void Awake()
     {
@@ -64,6 +64,7 @@ for (int pass = 0; pass < 3; pass++)
  System.Array.Copy(h2, h, h.Length);
 }
 for (int j = 0; j < V; j++) for (int i = 0; i < V; i++) { int k = j * V + i; double wx = -E + i * S, wz = -E + j * S; pos[k] = U(wx, h[k], wz); tex[k] = new Color((float)Cl(-16, 20, h[k]), 0, 0, 1); }
+HGrid = h;
 var idx = new int[N * N * 6];
         int n = 0;
         for (int j = 0; j < N; j++)
