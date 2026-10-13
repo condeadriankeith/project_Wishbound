@@ -101,7 +101,36 @@ public static class RoadBuild
         else if (d < -lim) { double e = (-d - lim) * 0.5; prof[a] -= e; prof[b] += e; }
     }
 
-    // Solve a grade-limited road surface close to the natural carved ground.
+    // Walks index `start` further along the centreline (dir = -1 toward lower indices,
+    // +1 toward higher) while the local slope of natH vs arc-length rs stays steeper than
+    // CliffGradeOk, stopping early if it would move more than CliffClearMax metres from the
+    // original water-edge sample. Used to keep bridge anchors off the base of a cliff wall.
+    const double CliffGradeOk = 0.20;   // slope (rise/run) below which ground counts as "clear"
+    const double CliffClearMax = 10.0;  // hard cap on how far an anchor may be walked inland (m)
+
+    static int ExtendOffCliff(double[] natH, double[] rs, int start, int dir)
+    {
+        int M = natH.Length;
+        int idx = start;
+        double s0 = rs[start];
+        while (true)
+        {
+            int next = idx + dir;
+            if (next < 0 || next >= M) break;
+            if (Math.Abs(rs[next] - s0) > CliffClearMax) break;
+
+            double run = Math.Abs(rs[next] - rs[idx]);
+            if (run < 1e-6) { idx = next; continue; }
+            double grade = Math.Abs(natH[next] - natH[idx]) / run;
+
+            if (grade <= CliffGradeOk) break;   // ground has levelled out — good anchor point
+            idx = next;
+        }
+        return idx;
+    }
+
+    
+// Solve a grade-limited road surface close to the natural carved ground.
     // prof must satisfy: |grade| <= cap, prof >= floor (bridge decks), prof within [natH-MaxCut, natH+MaxFill].
 static double[] SolveProfile(double[] natH, double[] ds, double[] floor, double cap)
     {
@@ -209,6 +238,14 @@ static double[] SolveProfile(double[] natH, double[] ds, double[] floor, double 
                 for (int q = ms + 1; q < M; q++) { if (water[q]) { i1 = q; gap = 0; } else if (++gap > 2) break; }
                 // extend one dry sample each side for bank heights
                 int a = Math.Max(0, i0 - 1), b = Math.Min(M - 1, i1 + 1);
+
+                // Cliff clearance: walk each anchor further inland while the local bank grade is
+                // still steep, so the bridge transition zone lands on calmer ground instead of
+                // right at the base of a cliff wall, which is where StampFill shoulder blending
+                // and steep natural ground fight each other and cause clipping.
+                a = ExtendOffCliff(road.natH, rs, a, -1);
+                b = ExtendOffCliff(road.natH, rs, b, +1);
+
                 double width = rs[b] - rs[a];
                 double bedMin = double.PositiveInfinity;
                 for (int q = i0; q <= i1; q++) bedMin = Math.Min(bedMin, road.natH[q]);

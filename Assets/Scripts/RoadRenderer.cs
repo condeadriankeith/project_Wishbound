@@ -340,12 +340,12 @@ static RoadData Prep(RoadBuild.GradedRoad g, int id)
             m2[k] = acc / Mathf.Max(1, cnt);
         }
         rd.mode = m2;
-        foreach (var sp in rd.bridges) StraightenSpan(rd, sp);
+        foreach (var sp in rd.bridges) { NudgeFromWalls(rd, sp); StraightenSpan(rd, sp); }
         return rd;
     }
 
 // How good is road sample k as a bridge landing? Lower is better: dry, flat across the width and along the road.
-    static float LandingScore(RoadData rd, int k)
+static float LandingScore(RoadData rd, int k, int towardBridge)
     {
         var s = rd.d[k]; float hw = rd.hw;
         Vector3 pl = s.p - s.r * hw, pr = s.p + s.r * hw, pf = s.p + s.t * 1.2f, pb = s.p - s.t * 1.2f;
@@ -353,21 +353,73 @@ static RoadData Prep(RoadBuild.GradedRoad g, int id)
         float rough = Mathf.Max(Mathf.Max(Mathf.Abs(gl - g0), Mathf.Abs(gr - g0)), Mathf.Max(Mathf.Abs(gf - g0), Mathf.Abs(gb - g0)));
         float wet = (Wet(s.p.x, s.p.z, g0) ? 6f : 0f) + (Wet(pl.x, pl.z, gl) ? 3f : 0f) + (Wet(pr.x, pr.z, gr) ? 3f : 0f);
         float edge = Mathf.Abs(gf - gb) * 1.5f;   // avoid landing on a slope that tilts the abutment
-        return rough * 2f + wet + edge;
+        // Run-out check: walk a few metres further AWAY from the water (away from the bridge) and
+        // measure how much the ground still climbs/falls. A true landing sits on a shelf, not mid-slope,
+        // so this should be small; on a cliff face it stays large no matter where you sample along it.
+        float runOut = 0f;
+        Vector3 away = s.t * (-towardBridge);
+        float prevH = g0;
+        for (int step = 1; step <= 4; step++)
+        {
+            Vector3 probe = s.p + away * (step * 1.5f);
+            float ph = GroundAt(probe);
+            runOut += Mathf.Abs(ph - prevH);
+            prevH = ph;
+        }
+        // Wall term: penalise landings with terrain rising beside the deck (cliff wall within a few metres either side)
+        float wall = 0f;
+        foreach (float lo in new float[] { hw + 1.5f, hw + 3.5f })
+        {
+            float gL = GroundAt(s.p - s.r * lo), gR = GroundAt(s.p + s.r * lo);
+            wall += Mathf.Max(0f, gL - g0 - 0.8f) + Mathf.Max(0f, gR - g0 - 0.8f);
+        }
+        return rough * 2f + wet + edge + runOut * 3f + wall * 2.5f;
     }
 
     // Walk outward from the crossing (up to ~5 m) and take the best landing on each bank.
-    static void SmartEnds(RoadData rd, int iA, int iB, out int jA, out int jB)
+static void SmartEnds(RoadData rd, int iA, int iB, out int jA, out int jB)
     {
         int n = rd.d.Length;
         jA = Math.Max(0, iA - 3); jB = Math.Min(n - 1, iB + 3);
         float bestA = 1e9f, bestB = 1e9f;
-        for (int st = 2; st <= 12; st++)
+        int qualA = -1, qualB = -1; float qualAScore = 1e9f, qualBScore = 1e9f; int nqA = 0, nqB = 0;
+        const float FlatEnough = 0.35f;   // run-out below this = genuine shelf
+        const float WallOk = 0.6f;        // wall term below this = no cliff beside the deck
+        for (int st = 2; st <= 60; st++)
         {
             int ka = iA - st, kb = iB + st;
-            if (ka >= 0) { float sc = LandingScore(rd, ka) + 0.05f * st; if (sc < bestA) { bestA = sc; jA = ka; } }
-            if (kb < n) { float sc = LandingScore(rd, kb) + 0.05f * st; if (sc < bestB) { bestB = sc; jB = kb; } }
+            if (ka >= 0)
+            {
+                float sc = LandingScore(rd, ka, +1) + 0.03f * st;
+                if (sc < bestA) { bestA = sc; jA = ka; }
+                if (RunOutOnly(rd, ka, +1) < FlatEnough && WallOnly(rd, ka) < WallOk) { nqA++; if (sc < qualAScore) { qualAScore = sc; qualA = ka; } }
+            }
+            if (kb < n)
+            {
+                float sc = LandingScore(rd, kb, -1) + 0.03f * st;
+                if (sc < bestB) { bestB = sc; jB = kb; }
+                if (RunOutOnly(rd, kb, -1) < FlatEnough && WallOnly(rd, kb) < WallOk) { nqB++; if (sc < qualBScore) { qualBScore = sc; qualB = kb; } }
+            }
         }
+        if (qualA >= 0) jA = qualA;
+        if (qualB >= 0) jB = qualB;
+    }
+
+    // Isolated run-out term (see LandingScore) so SmartEnds can gate on "is this actually flat" separately
+    // from the composite score used to rank candidates.
+    static float RunOutOnly(RoadData rd, int k, int towardBridge)
+    {
+        var s = rd.d[k];
+        Vector3 away = s.t * (-towardBridge);
+        float prevH = GroundAt(s.p), runOut = 0f;
+        for (int step = 1; step <= 4; step++)
+        {
+            Vector3 probe = s.p + away * (step * 1.5f);
+            float ph = GroundAt(probe);
+            runOut += Mathf.Abs(ph - prevH);
+            prevH = ph;
+        }
+        return runOut;
     }
 
 
@@ -601,14 +653,14 @@ static RoadData Prep(RoadBuild.GradedRoad g, int id)
         var rng = new System.Random(9001 + idx * 57);
 
         // Sample ground height and water surface at every point so the deck, abutments and posts all key off reality.
-        var cx = new float[n]; var cz = new float[n]; var ground = new float[n]; var water = new float[n]; var hasWater = new bool[n];
+        var cx = new float[n]; var cz = new float[n]; var ground = new float[n]; var groundC = new float[n]; var water = new float[n]; var hasWater = new bool[n];
         var r = new Vector3[n]; var fwd = new Vector3[n];
         for (int k = 0; k < n; k++)
         {
             var s = rd.d[jA + k];
             cx[k] = s.p.x; cz[k] = s.p.z;
             r[k] = s.r; fwd[k] = s.t;
-            ground[k] = GroundAt(s.p);
+            ground[k] = GroundAt(s.p); groundC[k] = ground[k];
             ground[k] = Mathf.Max(ground[k], Mathf.Max(GroundAt(s.p + s.r * (hw * 0.9f)), GroundAt(s.p - s.r * (hw * 0.9f))));
             if (k < 4 || k > n - 5)
             {
@@ -628,7 +680,7 @@ static RoadData Prep(RoadBuild.GradedRoad g, int id)
         // and drops to match the bank ground height at both ends (so it beds into the terrain, not floats above it).
         float waterMax = 0f; for (int k = 0; k < n; k++) if (hasWater[k]) waterMax = Mathf.Max(waterMax, water[k]);
         float peakY = waterMax + DeckClear;
-        float bankA = ground[0] + 0.08f, bankB = ground[n - 1] + 0.08f;
+        float bankA = groundC[0] + 0.08f, bankB = groundC[n - 1] + 0.08f;
         float spanLen = new Vector2(cx[0] - cx[n - 1], cz[0] - cz[n - 1]).magnitude; peakY = Mathf.Max(Mathf.Max(bankA, bankB) + 0.05f, Mathf.Min(peakY, (bankA + bankB) * 0.5f + MaxGrade * spanLen * 0.5f));
         var deckY = new float[n];
         for (int k = 0; k < n; k++)
@@ -637,10 +689,12 @@ static RoadData Prep(RoadBuild.GradedRoad g, int id)
             float arch = Mathf.Sin(t * Mathf.PI); // 0 at ends, 1 at middle
             float baseline = Mathf.Lerp(bankA, bankB, t);
             deckY[k] = Mathf.Lerp(baseline, peakY, arch);
-            deckY[k] = Mathf.Max(deckY[k], ground[k] + 0.08f); // never sink into the bank
+            deckY[k] = Mathf.Max(deckY[k], groundC[k] + 0.08f); // never sink into the bank
         }
 
-        for (int pass = 0; pass < 6; pass++) { var tmp = (float[])deckY.Clone(); for (int k = 1; k < n - 1; k++) tmp[k] = (deckY[k - 1] + deckY[k] * 2f + deckY[k + 1]) / 4f; deckY = tmp; for (int k = 0; k < n; k++) { deckY[k] = Mathf.Max(deckY[k], ground[k] + 0.12f); if (hasWater[k]) deckY[k] = Mathf.Max(deckY[k], water[k] + DeckClear * 0.8f); } }
+        for (int pass = 0; pass < 6; pass++) { var tmp = (float[])deckY.Clone(); for (int k = 1; k < n - 1; k++) tmp[k] = (deckY[k - 1] + deckY[k] * 2f + deckY[k + 1]) / 4f; deckY = tmp; for (int k = 0; k < n; k++) { deckY[k] = Mathf.Max(deckY[k], groundC[k] + 0.12f); if (hasWater[k]) deckY[k] = Mathf.Max(deckY[k], water[k] + DeckClear * 0.8f); } deckY[0] = Mathf.Max(deckY[0], bankA + 0.02f); deckY[n - 1] = Mathf.Max(deckY[n - 1], bankB + 0.02f); }
+        for (int k = 1; k < n; k++) { float sg = Mathf.Max(0.05f, new Vector2(cx[k] - cx[k - 1], cz[k] - cz[k - 1]).magnitude); deckY[k] = Mathf.Max(deckY[k], deckY[k - 1] - 0.30f * sg); }
+        for (int k = n - 2; k >= 0; k--) { float sg = Mathf.Max(0.05f, new Vector2(cx[k + 1] - cx[k], cz[k + 1] - cz[k]).magnitude); deckY[k] = Mathf.Max(deckY[k], deckY[k + 1] - 0.30f * sg); }
         var c = new Vector3[n]; var u = new Vector3[n];
         for (int k = 0; k < n; k++) { c[k] = new Vector3(cx[k], deckY[k], cz[k]); u[k] = Vector3.up; }
 
@@ -872,5 +926,57 @@ static void QuadUV(MB m, Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 out
         Vector3 t0 = (c[1] - c[0]).normalized, t1 = (c[e] - c[e - 1]).normalized;
         QuadUV(m, bl[0], br[0], tr[0], tl[0], -t0, col * 0.9f, 0f, hw[0] * 2f, 0f, hh[0] * 2f);
         QuadUV(m, bl[e], br[e], tr[e], tl[e], t1, col * 0.9f, 0f, hw[e] * 2f, 0f, hh[e] * 2f);
+    }
+
+
+static float WallOnly(RoadData rd, int k)
+    {
+        var s = rd.d[k]; float hw = rd.hw; float g0 = GroundAt(s.p); float wall = 0f;
+        foreach (float lo in new float[] { hw + 1.5f, hw + 3.5f })
+        {
+            float gL = GroundAt(s.p - s.r * lo), gR = GroundAt(s.p + s.r * lo);
+            wall += Mathf.Max(0f, gL - g0 - 0.8f) + Mathf.Max(0f, gR - g0 - 0.8f);
+        }
+        return wall;
+    }
+
+
+static void NudgeFromWalls(RoadData rd, BridgeSpan sp)
+    {
+        var D = rd.d; int n = D.Length;
+        for (int e = 0; e < 2; e++)
+        {
+            int j = e == 0 ? sp.jA : sp.jB; int dir = e == 0 ? -1 : 1;
+            float g00 = GroundAt(D[j].p);
+            float w0 = LateralWall(rd, j, 0f, g00), bestW = w0, bestOff = 0f;
+            if (w0 < 0.6f) continue;
+            for (float off = -2.5f; off <= 2.5f; off += 0.5f)
+            {
+                float w = LateralWall(rd, j, off, g00) + 0.15f * Mathf.Abs(off);
+                if (w < bestW) { bestW = w; bestOff = off; }
+            }
+            if (Mathf.Abs(bestOff) < 0.01f) continue;
+            const int Blend = 12;
+            for (int q = 0; q <= Blend; q++)
+            {
+                int k = j + dir * q; if (k < 0 || k >= n) break;
+                float w = Mathf.SmoothStep(0f, 1f, 1f - (float)q / Blend);
+                Vector3 p = D[k].p + D[k].r * (bestOff * w);
+                p.y = D[k].p.y;
+                D[k].p = p; D[k].x = p.x; D[k].z = MirrorZ ? -p.z : p.z;
+            }
+        }
+    }
+
+
+static float LateralWall(RoadData rd, int k, float off, float g00)
+    {
+        var s = rd.d[k]; float hw = rd.hw; Vector3 c = s.p + s.r * off; float g0 = GroundAt(c); float wall = Mathf.Abs(g0 - g00) * 2f;
+        foreach (float lo in new float[] { hw + 1.5f, hw + 3.5f })
+        {
+            float gL = GroundAt(c - s.r * lo), gR = GroundAt(c + s.r * lo);
+            wall += Mathf.Max(0f, gL - g0 - 0.8f) + Mathf.Max(0f, gR - g0 - 0.8f);
+        }
+        return wall;
     }
 }
