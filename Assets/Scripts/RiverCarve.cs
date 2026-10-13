@@ -180,13 +180,14 @@ public static class RiverCarve
                     {
                         double qx = -E + i * Res, qz = -E + j * Res, d = Math.Sqrt((qx - lx) * (qx - lx) + (qz - lz) * (qz - lz));
                         if (d >= RR) continue;
+                        double Rl = FlowNet.LakeRadiusAt(qx - lx, qz - lz);
                         double T, w;
-                        if (d <= R) { T = FlowNet.LakeLevel - LakeDepth * (1 - (d / R) * (d / R)); w = 1; }
-                        else { T = FlowNet.LakeLevel + (d - R) * 0.5; w = 1 - Sm((d - (R + 4)) / 4); }
+                        if (d <= Rl) { T = FlowNet.LakeLevel - LakeDepth * (1 - (d / Rl) * (d / Rl)); w = 1; }
+                        else { T = FlowNet.LakeLevel + (d - Rl) * 0.5; w = 1 - Sm((d - (Rl + 4)) / 4); }
                         int k = j * NR + i; if (float.IsNaN(hc[k])) hc[k] = (float)TerrainMath.HRaw(qx, qz);
                         float cand = (float)(w * Math.Max(0, hc[k] - T));
                         if (cand > cut[k]) cut[k] = cand;
-                        float wl = d <= R ? 1f : 1f - Sm((d - R) / 6.0);
+                        float wl = d <= Rl ? 1f : 1f - Sm((d - Rl) / 6.0);
                         if (wl > wet[k]) wet[k] = wl;
                     }
             }

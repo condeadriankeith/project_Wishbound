@@ -7,6 +7,7 @@ using UnityEngine.Rendering;
 public static class WaterBuilder
 {
     public static bool SpawnDemoLogs = true;
+    public static bool SpawnRoads = true;
     static GameObject root;
 
     // ---- detected waterfalls: Build() raises a falling-water curtain + layered mist for each ----
@@ -21,6 +22,9 @@ public static class WaterBuilder
         public Fall(Vector3[] pts, float width, float drop) { this.pts = pts; this.width = width; this.drop = drop; }
     }
     static readonly List<Fall> falls = new List<Fall>();
+    /// <summary>Read-only view of the detected waterfalls (valid after Build() has run). Bridges use it to clear plunge pools.</summary>
+    public static IReadOnlyList<Fall> Falls { get { return falls; } }
+
 
     /// <summary>Record a waterfall as the channel centreline run [i0..i1] (i0=lip on the visible ribbon,
     /// i1=plunge pool) in SOURCE coords. Called from RiverWater where cascades are detected.</summary>
@@ -56,18 +60,18 @@ public static void AddFall(IList<double> xs, IList<double> ys, IList<double> zs,
         {
             float R = (float)FlowNet.LakeR + 3f, lx = (float)FlowNet.LakeX, lz = (float)FlowNet.LakeZ, lv = (float)FlowNet.LakeLevel;
             WaterField.SetLake(lx, lz, R - 3f, lv);
-            { var lr = new System.Random(77); for (int q = 0; q < 110; q++) { double an = lr.NextDouble() * 6.2832, d = (R - 3f) * (0.97 + lr.NextDouble() * 0.16); RiverRocks.Add(lx + Math.Cos(an) * d, lz + Math.Sin(an) * d, (float)(0.12 + 0.45 * Math.Pow(lr.NextDouble(), 2.2)), lr); } }
+            { var lr = new System.Random(77); for (int q = 0; q < 110; q++) { double an = lr.NextDouble() * 6.2832, d = FlowNet.LakeRadiusAt(Math.Cos(an), Math.Sin(an)) * (0.97 + lr.NextDouble() * 0.16); RiverRocks.Add(lx + Math.Cos(an) * d, lz + Math.Sin(an) * d, (float)(0.12 + 0.45 * Math.Pow(lr.NextDouble(), 2.2)), lr); } }
             int rings = 6, segs = 48, b0 = V.Count;
             for (int r = 0; r <= rings; r++)
                 for (int s = 0; s < segs; s++)
                 {
-                    float d = R * r / rings, an = s * Mathf.PI * 2f / segs;
+                    float an = s * Mathf.PI * 2f / segs; float Rm = (float)FlowNet.LakeRadiusAt(Mathf.Cos(an), Mathf.Sin(an)) + 1.5f; float d = Rm * r / rings;
                     double wx = lx + Mathf.Cos(an) * d, wz = lz + Mathf.Sin(an) * d;
                     double th = RiverWater.GH(wx, wz);
                     // rim tucks onto the shore where ground rises above the lake; submerged verts stay at level
                     double y = th > lv - 0.05 ? th + 0.15 : lv;
                     V.Add(TerrainMath.U(wx, y, wz)); UV.Add(Vector2.zero); UV2.Add(new Vector2(1f, 0f));
-                    C.Add(new Color(0, 1, Mathf.Clamp01((d - 0.7f * R) / (0.3f * R)), 0));
+                    C.Add(new Color(0, 1, Mathf.Clamp01((d - 0.7f * Rm) / (0.3f * Rm)), 0));
                 }
             for (int r = 0; r < rings; r++)
                 for (int s = 0; s < segs; s++)
@@ -88,6 +92,7 @@ public static void AddFall(IList<double> xs, IList<double> ys, IList<double> zs,
 
         BuildWaterfalls();
         RiverRocks.Build(root.transform);
+        if (SpawnRoads) RoadRenderer.Build();
         if (SpawnDemoLogs && longest != null) Logs(longest);
     }
 
@@ -225,7 +230,7 @@ static float zSign = 1f;
                 }
                 float off = t + baseOff + bow;
                 float ox = px + n.x * off, oz = pz + n.y * off;
-                float oy = Mathf.Max(y, G(ox, oz) + 0.2f);
+                float oy = r == R - 1 ? G(ox, oz) + 0.12f : Mathf.Max(y, G(ox, oz) + 0.2f);
                 int i = r * COL + c;
                 V[i] = new Vector3(ox, oy, oz);
                 UV[i] = new Vector2(c / (float)(COL - 1), 1f - u);
@@ -251,13 +256,13 @@ static float zSign = 1f;
         const int SEG = 28, RINGS = 3;
         var V = new List<Vector3>(); var UV = new List<Vector2>(); var UV1 = new List<Vector2>(); var C = new List<Color>(); var T = new List<int>();
         float baseY = c.y + 0.1f;
-        V.Add(new Vector3(c.x, Mathf.Max(baseY, G(c.x, c.z) + 0.12f), c.z)); UV.Add(new Vector2(0.5f, 0.5f)); UV1.Add(new Vector2(R * 2f, R * 2f)); C.Add(Color.white);
+        V.Add(new Vector3(c.x, G(c.x, c.z) + 0.1f, c.z)); UV.Add(new Vector2(0.5f, 0.5f)); UV1.Add(new Vector2(R * 2f, R * 2f)); C.Add(Color.white);
         for (int r = 1; r <= RINGS; r++)
             for (int s = 0; s < SEG; s++)
             {
                 float rr = r / (float)RINGS, an = s * Mathf.PI * 2f / SEG;
                 float x = c.x + Mathf.Cos(an) * R * rr, z = c.z + Mathf.Sin(an) * R * rr;
-                V.Add(new Vector3(x, Mathf.Max(baseY, G(x, z) + 0.12f), z));
+                V.Add(new Vector3(x, G(x, z) + 0.1f, z));
                 UV.Add(new Vector2(0.5f + Mathf.Cos(an) * 0.5f * rr, 0.5f + Mathf.Sin(an) * 0.5f * rr));
                 UV1.Add(new Vector2(R * 2f, R * 2f)); C.Add(Color.white);
             }

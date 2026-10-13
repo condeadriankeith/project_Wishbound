@@ -9,6 +9,12 @@ public static class FlowNet
 {
     public const double Runoff = 2e-5;       // m/s runoff per m2 of catchment
     public const double Eps = 1e-4;          // fill epsilon (m)
+    public static double LakeRadiusAt(double dx, double dz)   // organic shoreline: radius varies with angle (<= LakeR)
+    {
+        double an = Math.Atan2(dz, dx);
+        double f = 0.84 + 0.06 * Math.Sin(2 * an + 1.3) + 0.05 * Math.Sin(3 * an + 4.1) + 0.04 * Math.Sin(5 * an + 2.2) + 0.03 * Math.Sin(7 * an + 0.6);
+        return LakeR * Math.Min(1.0, f);
+    }
     public const double LakeR = 12.0;        // summit lake radius (m)
     public const int SpringCount = 6;        // incl. lake outlet
     public const double MinSpringSep = 80.0; // m
@@ -109,7 +115,7 @@ public static class FlowNet
                 double dx = X(k) - LakeX, dz = Z(k) - LakeZ;
                 if (Math.Abs(dx) > LakeR + 2 * cell || Math.Abs(dz) > LakeR + 2 * cell) continue;
                 double d = Math.Sqrt(dx * dx + dz * dz);
-                if (d <= LakeR) InLake[k] = true;
+                if (d <= LakeRadiusAt(dx, dz)) InLake[k] = true;
                 else if (d <= LakeR + 1.5 * cell) ringMin = Math.Min(ringMin, h[k]);
             }
             for (int k = 0; k < n; k++) if (InLake[k]) hm[k] = ringMin;

@@ -23,6 +23,22 @@ public static class RiverWater
 
     static void Smooth(double[] e) { for (int p = 0; p < 2; p++) { var c = (double[])e.Clone(); for (int m = 1; m < e.Length - 1; m++) e[m] = (c[m - 1] + 2 * c[m] + c[m + 1]) / 4; } }
 
+static void SmoothWide(double[] e, int radius, int passes)
+    {
+        int N = e.Length; if (N < 3) return;
+        for (int p = 0; p < passes; p++)
+        {
+            var c = (double[])e.Clone();
+            for (int m = 1; m < N - 1; m++)
+            {
+                double acc = 0; int cnt = 0;
+                for (int k = -radius; k <= radius; k++) { int q = m + k; if (q < 0 || q >= N) continue; acc += c[q]; cnt++; }
+                e[m] = Math.Max(0.4, acc / cnt);
+            }
+        }
+    }
+
+
 static void SmoothTail(double[] e, int from) { from = Math.Max(1, from); for (int p = 0; p < 6; p++) { var c = (double[])e.Clone(); for (int m = from; m < e.Length - 1; m++) e[m] = (c[m - 1] + 2 * c[m] + c[m + 1]) / 4; } }
 
     static double Sm01(double u) { u = u < 0 ? 0 : u > 1 ? 1 : u; return u * u * (3 - 2 * u); }
@@ -30,7 +46,7 @@ static void SmoothTail(double[] e, int from) { from = Math.Max(1, from); for (in
     public static void Build(List<Vector3> V, List<Vector2> UV, List<Vector2> UV2, List<Color> C, List<int> T, out RiverCarve.Channel longest)
     {
         longest = null; RiverRocks.Clear();
-        const int CS = 9; // cross-section vertices
+        const int CS = 13; // cross-section vertices (more columns = smoother bed curvature and shoreline)
         foreach (var c in RiverCarve.Channels)
         {
             int M = c.x.Length; if (M < 2) continue;
@@ -46,6 +62,8 @@ static void SmoothTail(double[] e, int from) { from = Math.Max(1, from); for (in
                 float ramp = c.lake ? 1f : Mathf.SmoothStep(0, 1, m / 12f);   // spring: fades in from a point
                 FD.Add(ramp); WS.Add(c.lake ? 1.0 : Mathf.Lerp(0.05f, 1f, ramp)); MO.Add(0f);
             }
+            for (int m = 1; m < M; m++) { float ds = (float)Math.Max(0.01, S[m] - S[m - 1]); SP[m] = Mathf.Clamp(SP[m], SP[m - 1] - 0.35f * ds, SP[m - 1] + 0.35f * ds); }
+            for (int m = M - 2; m >= 0; m--) { float ds = (float)Math.Max(0.01, S[m + 1] - S[m]); SP[m] = Mathf.Clamp(SP[m], SP[m + 1] - 0.35f * ds, SP[m + 1] + 0.35f * ds); }
             bool toSea = c.bed[M - 1] < 1.0;
             if (toSea)   // reaches the sea: fan out into a fading mouth
             {
@@ -87,7 +105,7 @@ static void SmoothTail(double[] e, int from) { from = Math.Max(1, from); for (in
                 eL[m] = March(X[m], Z[m], tz[m], -tx[m], th[m], maxW);
             }
             for (int m = M; m < N; m++) { eL[m] = Math.Max(eL[m], eL[m - 1]); eR[m] = Math.Max(eR[m], eR[m - 1]); }   // the mouth only ever widens
-            Smooth(eL); Smooth(eR);
+            SmoothWide(eL, 6, 3); SmoothWide(eR, 6, 3);   // wide box blur: bank-march steps (0.5 m, noisy) no longer show up as a zig-zag shoreline
             if (N > M) { SmoothTail(eL, M - 10); SmoothTail(eR, M - 10); }
             int baseI = V.Count;
             for (int m = 0; m < N; m++)

@@ -28,7 +28,7 @@ public class IslandWorld : MonoBehaviour
     float flyTimeSinceLastLastSpace;
 
     // instanced batches (drawn every frame)
-    InstancedBatch oakB, cypB, pineB, ivyB, grassB, bodyB, roofB, chimB, winB, plankB;
+    InstancedBatch oakB, cypB, pineB, ivyB, grassB, bodyB, roofB, chimB, winB;
     // birds dynamic
     InstancedBatch birdB;
     struct Bird { public float cx, cz, r, y, a0, spd, ph, s; public int sign; }
@@ -65,7 +65,7 @@ public class IslandWorld : MonoBehaviour
         BuildVegetation(pm);
         BuildVillage(pm);
         BuildWindmillChapel();
-        BuildSpirePropsAndBridge();
+        BuildSpireProps();
         BuildHarborAndBoats();
         BuildCitadel();
         BuildWaterfall();
@@ -439,8 +439,8 @@ public class IslandWorld : MonoBehaviour
         PropMesh(TreeFactory.Cone(3.0f, 6.5f, 8), Scatter.Hex(0xc45638), ch.transform.position + ch.transform.rotation * new Vector3(5.5f, 8 + 11.2f, -4.5f), ch.transform.rotation, Vector3.one, "SpireRoof", ch.transform);
     }
 
-    // ---------- spire props + bridge ----------
-    void BuildSpirePropsAndBridge()
+    // ---------- spire props ----------
+    void BuildSpireProps()
     {
         double tx = SPIRE_X + 9, tz = SPIRE_Z + 7; float th = Hf(tx, tz);
         var trav = new GameObject("Traveler"); trav.transform.position = U(tx, th, tz);
@@ -457,20 +457,6 @@ public class IslandWorld : MonoBehaviour
         var lt = new GameObject("LoneTree"); lt.transform.position = U(lx, lh, lz);
         PropMesh(TreeFactory.Cyl(0.5f, 0.8f, 6.5f, 7), Scatter.Hex(0x5a3e28), lt.transform.position + new Vector3(0, 3.25f, 0), Quaternion.Euler(0, 0, 0.25f), Vector3.one, "Trunk", lt.transform);
         PropMesh(TreeFactory.Lobe(new Vector3(3.8f, 3.8f, 3.8f)), Scatter.Hex(0x3d8c22), lt.transform.position + new Vector3(1.5f, 7.2f, 0.2f), Quaternion.identity, new Vector3(1.2f, 0.9f, 1.2f), "Crown", lt.transform);
-        // bridge P1->P2, 37 planks
-        double p2x = SPIRE_X + 85, p2z = SPIRE_Z + 42;
-        Vector3 P1 = U(SPIRE_X + 16, SPIRE_TOP_Y - 2, SPIRE_Z + 14);
-        Vector3 P2 = U(p2x, H(p2x, p2z), p2z);
-        plankB = new InstancedBatch(MakeBox(), foliageMat);
-        for (int i = 0; i <= 36; i++)
-        {
-            float u = i / 36f;
-            Vector3 pp = Vector3.Lerp(P1, P2, u); pp.y -= Mathf.Sin(u * Mathf.PI) * 5.2f;
-            Vector3 bdir = P2 - pp; if (bdir.sqrMagnitude < 0.01f) bdir = P2 - P1;
-            var rot = Quaternion.LookRotation(bdir.normalized, Vector3.up);
-            plankB.Add(Matrix4x4.TRS(pp, rot, new Vector3(2.4f, 0.22f, 1.1f)), Scatter.Hex(0x7a5839));
-        }
-        plankB.Bake();
     }
 
     // ---------- harbor + boats ----------
@@ -700,7 +686,7 @@ void BuildWaterfall()
     void Update()
     {
         oakB?.Draw(); cypB?.Draw(); pineB?.Draw(); ivyB?.Draw(); grassB?.Draw();
-        bodyB?.Draw(); roofB?.Draw(); chimB?.Draw(); winB?.Draw(); plankB?.Draw();
+        bodyB?.Draw(); roofB?.Draw(); chimB?.Draw(); winB?.Draw();
         float t = Time.time;
         if (windmillHub) windmillHub.localRotation = Quaternion.Euler(0, 0, -t * 0.85f * Mathf.Rad2Deg * 0.05f - t * 0.85f * 10f * 0.02f);
         if (windmillHub) windmillHub.localRotation = Quaternion.Euler(0, 0, -t * 0.85f * Mathf.Rad2Deg);

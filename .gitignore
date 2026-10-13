@@ -22,5 +22,13 @@
 sysinfo.txt
 [Rr]ecordings/
 [Ss]creenshots/
+# Recovery / backup / export scratch folders
+Assets/_Recovery/
+_backup_roads_*/
+BridgeBackup/
+IslandExport/
+*.bak
+ProjectSettings/Packages/
+
 .DS_Store
 Thumbs.db

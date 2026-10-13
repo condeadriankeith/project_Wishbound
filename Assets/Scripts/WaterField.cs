@@ -36,7 +36,7 @@ public static class WaterField
             o.flow = new Vector2(vx / l * sp, (TerrainMath.MirrorZ ? -vz : vz) / l * sp);
             o.depth = Mathf.Max(0.05f, o.surf - TerrainMath.Hm(x, z)); return true;
         }
-        if (lakeOn && (x - lx) * (x - lx) + (z - lz) * (z - lz) < lr * lr) { o.surf = ll; o.kind = 2; o.depth = Mathf.Max(0.05f, ll - TerrainMath.Hm(x, z)); return true; }
+        if (lakeOn && (x - lx) * (x - lx) + (z - lz) * (z - lz) < FlowNet.LakeRadiusAt(x - lx, z - lz) * FlowNet.LakeRadiusAt(x - lx, z - lz)) { o.surf = ll; o.kind = 2; o.depth = Mathf.Max(0.05f, ll - TerrainMath.Hm(x, z)); return true; }
         float h = TerrainMath.Hm(x, z);
         if (h < Sea) { o.surf = Sea; o.kind = 3; o.depth = Sea - h; return true; }
         return false;

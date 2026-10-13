@@ -97,7 +97,14 @@ public static class TerrainMath
         return b;
     }
     public static bool RiversOn = true;
-    public static double H(double x, double z) { double h = HRaw(x, z); return RiversOn ? RiverCarve.Apply(x, z, h) : h; }
+    public static bool RoadsOn = true;
+    public static double H(double x, double z)
+    {
+        double h = HRaw(x, z);
+        if (RiversOn) h = RiverCarve.Apply(x, z, h);
+        if (RoadsOn) h = RoadGrade.Apply(x, z, h);
+        return h;
+    }
     public static double HRaw(double x, double z)
     {
         double r0 = Math.Sqrt(x * x + z * z);
