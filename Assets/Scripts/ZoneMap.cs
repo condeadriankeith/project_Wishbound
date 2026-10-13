@@ -157,6 +157,17 @@ public static class ZoneMap
         Gen(Zone.Hamlet, 11, 11, 17, 14, 10, 8f, 1.5f);
         Gen(Zone.Farm, 18, 16, 60, 30, 8, 8f, 2.0f);
         Gen(Zone.Summit, 13, 13, 24, 18, 4, 8f, 1.5f);
+
+        // PHASE 4.1 pickup note: Gen() above can under-produce relative to what a settlement needs
+        // (e.g. Farm's wide gap=60 isolates lots so far apart that SettlementMap.cs can't cluster them
+        // into villages; Summit's maxPer=4 caps it below a usable station size). This is the "relax or
+        // extend lot placement to hit explicit targets" step the Phase 4 brief calls out. The retry is
+        // ADDITIVE (Gen()'s own close-together dedupe guards against overlapping the lots already placed
+        // above) and only fires per-zone if that zone's count is still short, so a healthy zone is untouched
+        // and Phase 3.9's own Validate() rules (>=4/8/3/1 per zone) keep their existing headroom.
+        RelaxIfShort(Zone.Harbour, 10, 9, 12, 15, 14, 24, 7f, 1.2f);
+        RelaxIfShort(Zone.Farm, 14, 18, 16, 22, 14, 20, 8f, 2.0f);
+        RelaxIfShort(Zone.Summit, 5, 13, 13, 14, 10, 10, 8f, 1.5f);
         Built = true; Validate();
     }
 
@@ -189,6 +200,26 @@ public static class ZoneMap
             per[grp] = cnt + 1;
         }
     }
+
+    // PHASE 4.1: if a zone came up short after Gen()'s normal pass, retry with a tighter gap (denser
+    // packing) and a higher per-group cap, ADDITIVELY (existing lots are untouched; Gen()'s own
+    // close-together check prevents new lots overlapping ones already placed). Only fires when short,
+    // so a zone that already hit target is left exactly as the original Gen() pass produced it.
+    static void RelaxIfShort(Zone zone, int target, float w, float d, float gap, float rExtra, int maxPer, float maxSlope, float maxRange)
+    {
+        int Count() { int c = 0; foreach (var l in Lots) if (l.zone == zone) c++; return c; }
+        if (Count() >= target) return;
+        // NEVER go below Validate()'s own overlap threshold (0.9 * max(w,d)) + a small margin, or the
+        // denser retry pass places lots that Gen()'s same-zone `close` check allows but Validate() then
+        // flags as overlapping (two different distance thresholds that only agreed at the original gap).
+        float overlapSafe = Mathf.Max(w, d) * 0.95f;
+        float tighterGap = Mathf.Max(gap * 0.6f, overlapSafe);
+        Gen(zone, w, d, tighterGap, rExtra, maxPer, maxSlope, maxRange);
+        if (Count() >= target) return;
+        // still short: widen the road-distance search band and loosen slope/range a touch, last resort
+        Gen(zone, w, d, Mathf.Max(tighterGap * 0.75f, overlapSafe), rExtra * 1.6f, maxPer, maxSlope + 2f, maxRange * 1.3f);
+    }
+
 
     static bool Fit(double x, double z, double fx, double fz, float w, float d, float maxSlope, float maxRange, out double hAvg)
     {
