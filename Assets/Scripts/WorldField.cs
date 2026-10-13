@@ -44,7 +44,7 @@ public static class WorldField
     {
         if (built) return;
         bool riv = RiversOn; RiversOn = false;   // grids stay RAW (flow network depends on them)
-        bool rd = RoadsOn; RoadsOn = false;      // and free of road grading (RoadNet routes on raw terrain)
+        bool rd = RoadsOn; RoadsOn = false; bool pd = PadsOn; PadsOn = false;      // and free of road grading (RoadNet routes on raw terrain)
         int n = G * G;
         HeightGrid = new float[n]; SlopeGrid = new float[n]; SeaDist = new float[n];
         MaxHeight = 0;
@@ -84,7 +84,7 @@ public static class WorldField
                 if (i == 0 || j == 0 || i == G - 1 || j == G - 1) v = 0;
                 SeaDist[k] = v; if (v < 1e8f && v > MaxSeaDist) MaxSeaDist = v;
             }
-        built = true; RiversOn = riv; RoadsOn = rd;
+        built = true; RiversOn = riv; RoadsOn = rd; PadsOn = pd;
     }
 
     public static string SelfTest()

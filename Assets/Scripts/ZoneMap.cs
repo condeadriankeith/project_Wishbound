@@ -64,6 +64,15 @@ public static class ZoneMap
 
     public static void Build()
     {
+        // Zones and lots are derived from the terrain BEFORE pad grading; pads are derived from the lots. Sampling the
+        // padded terrain here made the first (cold) build re-enter PadGrade -> SettlementMap -> ZoneMap and yield a
+        // different lot count (66) than a warm rebuild (57). Same switch WorldField.Build / RoadNet use.
+        bool pd = PadsOn; PadsOn = false;
+        try { BuildCore(); } finally { PadsOn = pd; }
+    }
+
+    static void BuildCore()
+    {
         WorldField.Build();
         try { FlowNet.Build(); } catch (System.Exception e) { Debug.LogWarning("Zones: FlowNet " + e.Message); }
         try { RoadNet.Build(); RoadBuild.Build(); } catch (System.Exception e) { Debug.LogWarning("Zones: roads " + e.Message); }

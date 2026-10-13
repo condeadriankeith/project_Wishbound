@@ -86,9 +86,9 @@ public static class RoadNet
         WorldField.Build();
         int n = G * G;
         var gr = new Grid { h = new float[n], slope = new float[n], water = new bool[n] };
-        bool ro = RoadsOn; RoadsOn = false;          // route on carved terrain, never on our own grading
+        bool ro = RoadsOn, po = PadsOn; RoadsOn = false; PadsOn = false;          // route on carved terrain, never on our own grading
         for (int k = 0; k < n; k++) gr.h[k] = (float)H(X(k), Z(k));
-        RoadsOn = ro;
+        RoadsOn = ro; PadsOn = po;
         for (int j = 1; j < G - 1; j++)
             for (int i = 1; i < G - 1; i++)
             {

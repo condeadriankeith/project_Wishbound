@@ -98,11 +98,13 @@ public static class TerrainMath
     }
     public static bool RiversOn = true;
     public static bool RoadsOn = true;
+    public static bool PadsOn = true;
     public static double H(double x, double z)
     {
         double h = HRaw(x, z);
         if (RiversOn) h = RiverCarve.Apply(x, z, h);
         if (RoadsOn) h = RoadGrade.Apply(x, z, h);
+        if (PadsOn) h = PadGrade.Apply(x, z, h);
         return h;
     }
     public static double HRaw(double x, double z)

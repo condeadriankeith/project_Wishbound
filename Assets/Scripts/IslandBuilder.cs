@@ -55,7 +55,7 @@ public class IslandBuilder : MonoBehaviour
         // terrain just outside the mask still smooths, blending the rim naturally into the raw ground.
         var protect = new bool[V * V];
         for (int j = 0; j < V; j++) for (int i = 0; i < V; i++)
-            protect[j * V + i] = RiverCarve.WetAt(-E + i * S, -E + j * S) > 0.25f || RoadGrade.MaskAt(-E + i * S, -E + j * S) > 0.5f;
+            protect[j * V + i] = RiverCarve.WetAt(-E + i * S, -E + j * S) > 0.25f || RoadGrade.MaskAt(-E + i * S, -E + j * S) > 0.5f || PadGrade.MaskAt(-E + i * S, -E + j * S) > 0.5f;
 var h2 = new float[V * V];
 for (int pass = 0; pass < 3; pass++)
 {

@@ -170,9 +170,9 @@ static double[] SolveProfile(double[] natH, double[] ds, double[] floor, double 
     // natural carved height (rivers applied, road grading OFF) at a source point
     static double NatH(double x, double z)
     {
-        bool ro = RoadsOn; RoadsOn = false;
+        bool ro = RoadsOn, po = PadsOn; RoadsOn = false; PadsOn = false;
         double h = H(x, z);
-        RoadsOn = ro;
+        RoadsOn = ro; PadsOn = po;
         return h;
     }
 
