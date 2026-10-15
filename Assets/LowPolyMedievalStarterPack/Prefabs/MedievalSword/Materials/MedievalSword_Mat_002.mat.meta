@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 0477d32c95a255440938bb3353c67454
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 2100000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 407378
+  packageName: Low Poly Medieval Starter Pack
+  packageVersion: 1.0
+  assetPath: Assets/LowPolyMedievalStarterPack/Prefabs/MedievalSword/Materials/MedievalSword_Mat_002.mat
+  uploadId: 994332

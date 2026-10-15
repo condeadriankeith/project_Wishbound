@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 6ed702b3c021da944ad56f2568fd9931
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 2100000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 407378
+  packageName: Low Poly Medieval Starter Pack
+  packageVersion: 1.0
+  assetPath: Assets/LowPolyMedievalStarterPack/Prefabs/CastleTower/Materials/CastleTower_Mat_003.mat
+  uploadId: 994332

@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: e5ac23b5c81903f4280827cb940090ff
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 2100000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 407378
+  packageName: Low Poly Medieval Starter Pack
+  packageVersion: 1.0
+  assetPath: Assets/LowPolyMedievalStarterPack/Prefabs/MedievalHouse/Materials/MedievalHouse_Mat_002.mat
+  uploadId: 994332

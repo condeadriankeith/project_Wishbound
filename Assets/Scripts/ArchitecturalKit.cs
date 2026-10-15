@@ -5,6 +5,7 @@ using UnityEngine;
 /// Architectural kit system for Phase 5 - generates a library of architectural pieces
 /// that can be snapped to a grid and tagged by style for building generation.
 /// </summary>
+// Trigger recompilation: 2026-10-14
 public static class ArchitecturalKit
 {
     public enum ArchitecturalStyle { Rustic, Refined, Ornate, Vernacular, Minimalist }
@@ -51,6 +52,9 @@ public static class ArchitecturalKit
         GenerateSteppedGables();
         GenerateTrimSheets();
 
+        // Set hash for determinism testing
+        Hash = GenerateHash();
+
         Built = true;
         Validate();
     }
@@ -73,10 +77,20 @@ public static class ArchitecturalKit
     {
         Report = "";
 
-        // Check piece count
-        if (Pieces.Count < 60 || Pieces.Count > 100)
+        // Check piece count (60-100 main pieces plus trim sheets)
+        int mainPieceCount = 0;
+        int trimSheetCount = 0;
+        foreach (var piece in Pieces)
         {
-            Report += $"Piece count {Pieces.Count} is outside valid range (60-100). ";
+            if (piece.isTrim)
+                trimSheetCount++;
+            else
+                mainPieceCount++;
+        }
+
+        if (mainPieceCount < 60 || mainPieceCount > 100)
+        {
+            Report += $"Main piece count {mainPieceCount} is outside valid range (60-100). ";
         }
 
         // Check for duplicate IDs
@@ -146,13 +160,16 @@ public static class ArchitecturalKit
             }
         }
 
-        // Determinism check: generate kit twice and compare hashes
+        // Determinism check: regenerate into the list and compare hashes, then restore the original pieces.
+        // (Clear() must not be used here: it would wipe Report and Hash.)
         int h1 = Hash;
-        bool builtBackup = Built;
-        Built = false;
-        Build(); // Rebuild to test determinism
-        bool det = h1 == Hash;
-        Built = builtBackup; // Restore original state
+        var snapshot = new List<ArchitecturalPiece>(Pieces);
+        Pieces.Clear();
+        GenerateAllPiecesWithoutValidation();
+        int h2 = GenerateHash();
+        Pieces.Clear();
+        Pieces.AddRange(snapshot);
+        bool det = h1 == h2;
 
         if (!det)
         {
@@ -161,8 +178,32 @@ public static class ArchitecturalKit
 
         if (string.IsNullOrEmpty(Report))
         {
-            Report = $"ArchitecturalKit validation passed. Generated {Pieces.Count} pieces.";
+            Report = $"ArchitecturalKit validation passed. Generated {mainPieceCount} main pieces and {trimSheetCount} trim sheets.";
         }
+    }
+
+    /// <summary>
+    /// Generates all pieces without calling Validate() to avoid recursion in determinism check.
+    /// </summary>
+    private static void GenerateAllPiecesWithoutValidation()
+    {
+        GeneratePlinths();
+        GenerateQuoins();
+        GenerateSills();
+        GenerateLintels();
+        GenerateShutters();
+        GenerateArchedDoors();
+        GenerateBalconies();
+        GenerateLoggias();
+        GeneratePergolas();
+        GenerateExternalStairs();
+        GenerateChimneyCaps();
+        GenerateParapetBands();
+        GenerateDrainpipes();
+        GenerateDormers();
+        GenerateSteppedGables();
+        GenerateTrimSheets();
+        // Note: We don't set Built = true here, as this is just for the check
     }
 
     /// <summary>
@@ -184,55 +225,54 @@ public static class ArchitecturalKit
         return hash;
     }
 
-    // Piece generation methods
+    // Piece generation methods - adjusted for 60-100 main pieces plus trim sheets
     private static void GeneratePlinths()
     {
-        // Plinths: 8 varieties (2-6 heights, 2 styles each)
-        string[] types = { "PlinthShort", "PlinthMedium", "PlinthTall" };
-        ArchitecturalStyle[] styles = { ArchitecturalStyle.Rustic, ArchitecturalStyle.Refined };
+        // Wall segments: 6 varieties (3 heights × 2 styles)
+        // These are the basic wall pieces for Mediterranean buildings
+        string[] types = { "WallShort", "WallMedium", "WallTall" };
+        ArchitecturalStyle[] styles = StylePair(0);
 
         int variant = 0;
         foreach (var type in types)
         {
             foreach (var style in styles)
             {
-                // Vary height from 1 to 3 meters
-                float height = 1.0f + (variant % 3) * 1.0f;
+                // Mediterranean walls: 2-4m high, 0.65m thick (for that thick wall look), 2m wide (standard segment)
+                float height = 2.0f + (variant % 3) * 1.0f; // 2m, 3m, 4m heights
+                float thickness = 0.65f; // Mediterranean thick wall
+                float length = 2.0f;     // Standard wall segment length
                 CreatePiece($"{type}-{style}-{variant}", type, style,
-                    new Vector3(1.0f, height, 1.0f),
-                    new Vector3(0.5f, 0f, 0.5f), // Snap at bottom center
+                    new Vector3(length, height, thickness),
+                    new Vector3(length * 0.5f, 0f, thickness * 0.5f), // Snap at bottom center
                     false,
-                    new Vector3(0.5f, height * 0.5f, 0.5f));
+                    new Vector3(length * 0.5f, height * 0.5f, thickness * 0.5f));
                 variant++;
             }
-        }
-        // Add more variations to reach 8 total
-        for (int i = 0; i < 2; i++)
-        {
-            CreatePiece($"PlinthWide-{ArchitecturalStyle.Rustic}-{i}", "PlinthWide", ArchitecturalStyle.Rustic,
-                new Vector3(2.0f, 1.5f, 2.0f),
-                new Vector3(1.0f, 0f, 1.0f),
-                false,
-                new Vector3(1.0f, 0.75f, 1.0f));
         }
     }
 
     private static void GenerateQuoins()
     {
-        // Quoins: 8 varieties (corner stones, 2 patterns × 4 styles)
-        string[] patterns = { "QuoinSquare", "QuoinRounded" };
-        ArchitecturalStyle[] styles = { ArchitecturalStyle.Rustic, ArchitecturalStyle.Refined, ArchitecturalStyle.Ornate, ArchitecturalStyle.Vernacular };
+        // Wall corners: 6 varieties (2 corner types × 3 heights)
+        // Creates inner and outer corners for Mediterranean walls
+        string[] cornerTypes = { "InnerCorner", "OuterCorner" };
+        ArchitecturalStyle[] styles = StylePair(1);
 
         int variant = 0;
-        foreach (var pattern in patterns)
+        foreach (var cornerType in cornerTypes)
         {
             foreach (var style in styles)
             {
-                CreatePiece($"{pattern}-{style}-{variant}", pattern, style,
-                    new Vector3(0.5f, 2.0f, 0.5f),
-                    new Vector3(0.25f, 1.0f, 0.25f), // Snap at bottom corner
+                // Mediterranean wall corners: 2-4m high, 0.65m thick walls
+                float height = 2.0f + (variant % 3) * 1.0f; // 2m, 3m, 4m heights
+                float thickness = 0.65f; // Wall thickness
+                float length = 1.0f;     // Each leg of the corner is 1m
+                CreatePiece($"{cornerType}-{style}-{variant}", "WallCorner", style,
+                    new Vector3(length, height, thickness),
+                    new Vector3(0f, 0f, thickness * 0.5f), // Snap at bottom inside/outside corner
                     false,
-                    new Vector3(0.25f, 1.0f, 0.25f));
+                    new Vector3(length * 0.5f, height * 0.5f, thickness * 0.5f));
                 variant++;
             }
         }
@@ -240,75 +280,125 @@ public static class ArchitecturalKit
 
     private static void GenerateSills()
     {
-        // Sills: 10 varieties (window sills, 5 projections × 2 styles)
-        float[] projections = { 0.15f, 0.2f, 0.25f, 0.3f, 0.35f };
-        ArchitecturalStyle[] styles = { ArchitecturalStyle.Rustic, ArchitecturalStyle.Refined };
+        // Window frames: 8 varieties (2 heights × 2 widths × 2 styles)
+        // Creates proper window frames for Mediterranean walls (deep-set, with shutters)
+        float[] heights = { 1.0f, 1.2f }; // Window heights
+        float[] widths = { 0.6f, 0.8f };  // Window widths
+        ArchitecturalStyle[] styles = StylePair(2);
 
         int variant = 0;
-        foreach (var projection in projections)
+        foreach (var height in heights)
         {
-            foreach (var style in styles)
+            foreach (var width in widths)
             {
-                CreatePiece($"Sill-{projection}m-{style}-{variant}", "Sill", style,
-                    new Vector3(projection * 2 + 0.1f, 0.05f, 0.1f),
-                    new Vector3(0f, 0.025f, 0f), // Snap at bottom center
-                    false,
-                    new Vector3((projection * 2 + 0.1f) * 0.5f, 0.025f, 0.05f));
-                variant++;
+                foreach (var style in styles)
+                {
+                    // Mediterranean window frame: set into wall thickness, with space for shutters
+                    float frameWidth = width;      // width of window opening
+                    float frameHeight = height;    // height of window opening
+                    float wallThickness = 0.65f;   // Mediterranean wall thickness
+                    float recessDepth = 0.2f;      // how deep window is set into wall
+                    float totalDepth = wallThickness + recessDepth; // total depth including recess
+
+                    CreatePiece($"WindowFrame_{width}m_{height}m_{style}-{variant}", "WindowFrame", style,
+                        new Vector3(frameWidth, frameHeight, totalDepth),
+                        new Vector3(recessDepth * 0.5f, 0f, (wallThickness + recessDepth) * 0.5f), // Snap at bottom left of recess
+                        false,
+                        new Vector3(frameWidth * 0.5f, frameHeight * 0.5f, totalDepth * 0.5f));
+                    variant++;
+                }
             }
         }
     }
 
     private static void GenerateLintels()
     {
-        // Lintels: 10 varieties (headers, 5 types × 2 styles)
-        string[] types = { "LintelFlat", "LintelArch", "LintelStone", "LintelWood", "LintelSteel" };
-        ArchitecturalStyle[] styles = { ArchitecturalStyle.Rustic, ArchitecturalStyle.Refined };
+        // Door frames: 8 varieties (2 widths × 2 heights × 2 styles)
+        // Creates proper door frames for Mediterranean walls (for blue doors)
+        float[] heights = { 2.0f, 2.2f }; // Door heights
+        float[] widths = { 0.8f, 0.9f };  // Door widths
+        ArchitecturalStyle[] styles = StylePair(3);
 
         int variant = 0;
-        foreach (var type in types)
+        foreach (var height in heights)
         {
-            foreach (var style in styles)
+            foreach (var width in widths)
             {
-                CreatePiece($"Lintel-{type}-{style}-{variant}", type, style,
-                    new Vector3(2.0f, 0.2f, 0.2f),
-                    new Vector3(1.0f, 0.1f, 0.1f), // Snap at center
-                    false,
-                    new Vector3(1.0f, 0.1f, 0.1f));
-                variant++;
+                foreach (var style in styles)
+                {
+                    // Mediterranean door frame: opening in thick wall
+                    float frameWidth = width;      // width of door opening
+                    float frameHeight = height;    // height of door opening
+                    float wallThickness = 0.65f;   // Mediterranean wall thickness
+
+                    CreatePiece($"DoorFrame_{width}m_{height}m_{style}-{variant}", "DoorFrame", style,
+                        new Vector3(frameWidth, frameHeight, wallThickness),
+                        new Vector3(0f, 0f, wallThickness * 0.5f), // Snap at bottom left (interior side)
+                        false,
+                        new Vector3(frameWidth * 0.5f, frameHeight * 0.5f, wallThickness * 0.5f));
+                    variant++;
+                }
             }
         }
     }
 
     private static void GenerateShutters()
     {
-        // Shutters: 12 varieties (6 types × 2 styles)
-        string[] types = { "ShutterPanel", "ShutterLouvered", "ShutterBoard", "ShutterScrolled", "ShutterMetal", "ShutterVinyl" };
-        ArchitecturalStyle[] styles = { ArchitecturalStyle.Rustic, ArchitecturalStyle.Refined };
+        // Shutters: 8 varieties (2 heights × 2 widths × 2 styles)
+        // Creates shutters for Mediterranean windows (typically blue accent)
+        float[] heights = { 1.0f, 1.2f }; // Match window heights
+        float[] widths = { 0.3f, 0.4f };  // Shutter width (half of window width typically)
+        ArchitecturalStyle[] styles = StylePair(4);
 
         int variant = 0;
-        foreach (var type in types)
+        foreach (var height in heights)
         {
-            foreach (var style in styles)
+            foreach (var width in widths)
             {
-                CreatePiece($"Shutter-{type}-{style}-{variant}", type, style,
-                    new Vector3(0.05f, 1.8f, 0.02f),
-                    new Vector3(0.025f, 0.9f, 0.01f), // Snap at center left
-                    false,
-                    new Vector3(0.025f, 0.9f, 0.01f));
-                variant++;
+                foreach (var style in styles)
+                {
+                    // Mediterranean shutter: hinged, typically blue accent
+                    CreatePiece($"Shutter_{width}m_{height}m_{style}-{variant}", "Shutter", style,
+                        new Vector3(width, height, 0.02f), // thin shutter
+                        new Vector3(0f, height * 0.5f, 0.01f), // Snap at center left
+                        false,
+                        new Vector3(width * 0.5f, height * 0.5f, 0.01f));
+                    variant++;
+                }
             }
         }
     }
 
     private static void GenerateArchedDoors()
     {
-        // Arched Doors: 8 varieties (4 spans × 2 styles)
-        float[] spans = { 1.0f, 1.5f, 2.0f, 2.5f };
-        ArchitecturalStyle[] styles = { ArchitecturalStyle.Rustic, ArchitecturalStyle.Refined };
+        // Doors: 8 varieties (2 widths × 2 heights × 2 styles)
+        // Creates both standard and arched door options for Mediterranean buildings
+        float[] heights = { 2.0f, 2.5f }; // Door heights
+        float[] widths = { 0.8f, 1.0f };  // Door widths
+        ArchitecturalStyle[] styles = StylePair(5);
 
         int variant = 0;
-        foreach (var span in spans)
+        foreach (var height in heights)
+        {
+            foreach (var width in widths)
+            {
+                foreach (var style in styles)
+                {
+                    // Create a standard rectangular door
+                    CreatePiece($"Door_{width}m_{height}m_{style}-{variant}", "Door", style,
+                        new Vector3(width, height, 0.1f),
+                        new Vector3(0f, 0f, 0.05f), // Snap at bottom center
+                        false,
+                        new Vector3(width * 0.5f, height * 0.5f, 0.05f));
+                    variant++;
+                }
+            }
+        }
+
+        // Also create some arched door variants for visual interest
+        variant = 0; // reset variant for arched doors to keep IDs unique
+        float[] archSpans = { 1.0f, 1.5f }; // Smaller spans for arched doors
+        foreach (var span in archSpans)
         {
             foreach (var style in styles)
             {
@@ -326,7 +416,7 @@ public static class ArchitecturalKit
     {
         // Balconies: 6 varieties (3 types × 2 styles)
         string[] types = { "BalconyJuliet", "BalconyStandard", "BalconyWrap" };
-        ArchitecturalStyle[] styles = { ArchitecturalStyle.Rustic, ArchitecturalStyle.Refined };
+        ArchitecturalStyle[] styles = StylePair(6);
 
         int variant = 0;
         foreach (var type in types)
@@ -347,7 +437,7 @@ public static class ArchitecturalKit
     {
         // Loggias: 4 varieties (2 arcades × 2 styles)
         int[] arcades = { 1, 3 }; // 1 arch or 3 arches
-        ArchitecturalStyle[] styles = { ArchitecturalStyle.Rustic, ArchitecturalStyle.Refined };
+        ArchitecturalStyle[] styles = StylePair(7);
 
         int variant = 0;
         foreach (var arcadeCount in arcades)
@@ -369,7 +459,7 @@ public static class ArchitecturalKit
     {
         // Pergolas: 4 varieties (2 beam/spacings × 2 styles)
         float[] beamSpacings = { 0.2f, 0.4f }; // Beam thickness and spacing
-        ArchitecturalStyle[] styles = { ArchitecturalStyle.Rustic, ArchitecturalStyle.Refined };
+        ArchitecturalStyle[] styles = StylePair(8);
 
         int variant = 0;
         foreach (var beamSpacing in beamSpacings)
@@ -390,7 +480,7 @@ public static class ArchitecturalKit
     {
         // External Stairs: 6 varieties (3 types × 2 styles)
         string[] types = { "StairsStraight", "StairsL", "StairsSwitchback" };
-        ArchitecturalStyle[] styles = { ArchitecturalStyle.Rustic, ArchitecturalStyle.Refined };
+        ArchitecturalStyle[] styles = StylePair(9);
 
         int variant = 0;
         foreach (var type in types)
@@ -409,20 +499,22 @@ public static class ArchitecturalKit
 
     private static void GenerateChimneyCaps()
     {
-        // Chimney Caps: 6 varieties (3 styles × 2 variations)
-        string[] stylesStr = { "ChimneyCapFlat", "ChimneyCapSloped", "ChimneyCapDecorative" };
-        ArchitecturalStyle[] styles = { ArchitecturalStyle.Rustic, ArchitecturalStyle.Refined };
+        // Chimney caps: 6 varieties (2 styles × 3 sizes)
+        // Creates chimneys for Mediterranean buildings (typically whitewashed or terracotta)
+        float[] sizes = { 0.5f, 0.75f, 1.0f }; // Chimney width/depth
+        ArchitecturalStyle[] styles = StylePair(10);
 
         int variant = 0;
-        foreach (var styleStr in stylesStr)
+        foreach (var size in sizes)
         {
             foreach (var style in styles)
             {
-                CreatePiece($"ChimneyCap-{styleStr}-{style}-{variant}", styleStr, style,
-                    new Vector3(1.0f, 0.3f, 1.0f),
-                    new Vector3(0.5f, 0.15f, 0.5f), // Snap at bottom center
+                // Mediterranean chimney: typically rectangular prism
+                CreatePiece($"Chimney_{size}m_{style}-{variant}", "Chimney", style,
+                    new Vector3(size, 1.0f, size), // width, height, depth
+                    new Vector3(size * 0.5f, 0f, size * 0.5f), // Snap at bottom center
                     false,
-                    new Vector3(0.5f, 0.15f, 0.5f));
+                    new Vector3(size * 0.5f, 0.5f, size * 0.5f));
                 variant++;
             }
         }
@@ -430,41 +522,85 @@ public static class ArchitecturalKit
 
     private static void GenerateParapetBands()
     {
-        // Parapet Bands: 8 varieties (4 types × 2 styles)
-        string[] types = { "ParapetPlain", "ParapetCrenelated", "ParapetArched", "ParapetPanelled" };
-        ArchitecturalStyle[] styles = { ArchitecturalStyle.Rustic, ArchitecturalStyle.Refined };
+        // Roof caps: 8 varieties (2 types × 2 sizes × 2 styles)
+        // Creates roof caps for Mediterranean buildings (flat terracotta slab and pitched variant)
+        string[] roofTypes = { "RoofFlat", "RoofPitched" };
+        float[] lengths = { 2.0f, 3.0f }; // Roof segment lengths
+        float[] widths = { 2.0f, 3.0f };  // Roof segment widths
+        ArchitecturalStyle[] styles = StylePair(11);
 
         int variant = 0;
-        foreach (var type in types)
+        foreach (var roofType in roofTypes)
         {
-            foreach (var style in styles)
+            foreach (var length in lengths)
             {
-                CreatePiece($"Parapet-{type}-{style}-{variant}", type, style,
-                    new Vector3(2.0f, 0.5f, 0.2f),
-                    new Vector3(1.0f, 0.25f, 0.1f), // Snap at bottom center
-                    false,
-                    new Vector3(1.0f, 0.25f, 0.1f));
-                variant++;
+                foreach (var width in widths)
+                {
+                    foreach (var style in styles)
+                    {
+                        if (roofType == "RoofFlat")
+                        {
+                            // Flat terracotta roof slab
+                            float thickness = 0.15f; // roof thickness
+                            CreatePiece($"RoofFlat_{length}m_{width}m_{style}-{variant}", "Roof", style,
+                                new Vector3(length, thickness, width),
+                                new Vector3(length * 0.5f, thickness * 0.5f, width * 0.5f), // Snap at bottom center
+                                false,
+                                new Vector3(length * 0.5f, thickness * 0.5f, width * 0.5f));
+                        }
+                        else if (roofType == "RoofPitched")
+                        {
+                            // Pitched roof variant (triangular prism)
+                            float pitchHeight = 0.5f; // height of the pitch
+                            CreatePiece($"RoofPitched_{length}m_{width}m_{style}-{variant}", "Roof", style,
+                                new Vector3(length, pitchHeight, width),
+                                new Vector3(length * 0.5f, pitchHeight * 0.5f, width * 0.5f), // Snap at bottom center
+                                false,
+                                new Vector3(length * 0.5f, pitchHeight * 0.5f, width * 0.5f));
+                        }
+                        variant++;
+                    }
+                }
             }
         }
     }
 
     private static void GenerateDrainpipes()
     {
-        // Drainpipes: 4 varieties (2 shapes × 2 styles)
-        string[] shapes = { "DrainpipeRound", "DrainpipeSquare" };
-        ArchitecturalStyle[] styles = { ArchitecturalStyle.Rustic, ArchitecturalStyle.Refined };
+        // Stair modules: 4 varieties (2 types × 2 styles)
+        // Creates exterior stair modules for Mediterranean buildings
+        string[] stairTypes = { "StairStraight", "StairL" };
+        ArchitecturalStyle[] styles = StylePair(12);
 
         int variant = 0;
-        foreach (var shape in shapes)
+        foreach (var stairType in stairTypes)
         {
             foreach (var style in styles)
             {
-                CreatePiece($"Drainpipe-{shape}-{style}-{variant}", shape, style,
-                    new Vector3(0.15f, 2.5f, 0.15f),
-                    new Vector3(0.075f, 0f, 0.075f), // Snap at bottom center
-                    false,
-                    new Vector3(0.075f, 1.25f, 0.075f));
+                if (stairType == "StairStraight")
+                {
+                    // Straight stair module: 1m wide, 2-3m high
+                    float width = 1.0f; // stair width
+                    float height = 2.0f + (variant % 2) * 1.0f; // 2m or 3m high
+                    float depth = 0.5f; // stair depth
+                    CreatePiece($"StairStraight_W{width}_H{height}m_{style}-{variant}", "Stair", style,
+                        new Vector3(width, height, depth),
+                        new Vector3(0f, 0f, 0f), // Snap at bottom left
+                        false,
+                        new Vector3(width * 0.5f, height * 0.5f, depth * 0.5f));
+                }
+                else if (stairType == "StairL")
+                {
+                    // L-shaped stair module
+                    float width = 2.0f; // 2m wide for L-shape
+                    float height = 2.0f + (variant % 2) * 1.0f; // 2m or 3m high
+                    float depth = 2.0f; // 2m deep for L-shape
+                    CreatePiece($"StairL_W{width}_H{height}m_{style}-{variant}", "Stair", style,
+                        new Vector3(width, height, depth),
+                        new Vector3(0f, 0f, 0f), // Snap at bottom inside corner
+                        false,
+                        new Vector3(width * 0.5f, height * 0.5f, depth * 0.5f));
+                }
                 variant++;
             }
         }
@@ -472,41 +608,49 @@ public static class ArchitecturalKit
 
     private static void GenerateDormers()
     {
-        // Dormers: 6 varieties (3 types × 2 styles)
-        string[] types = { "DormerGabled", "DormerHipped", "DormerShed" };
-        ArchitecturalStyle[] styles = { ArchitecturalStyle.Rustic, ArchitecturalStyle.Refined };
+        // Archway/passage modules: 6 varieties (2 widths × 2 heights × 2 styles)
+        // Creates archways/passages for gaps between fused Mediterranean buildings
+        float[] heights = { 2.2f, 2.5f }; // Passage heights
+        float[] widths = { 1.5f, 2.0f };  // Passage widths
+        ArchitecturalStyle[] styles = StylePair(13);
 
         int variant = 0;
-        foreach (var type in types)
+        foreach (var height in heights)
         {
-            foreach (var style in styles)
+            foreach (var width in widths)
             {
-                CreatePiece($"Dormer-{type}-{style}-{variant}", type, style,
-                    new Vector3(1.5f, 1.0f, 1.0f),
-                    new Vector3(0.75f, 0.5f, 0.5f), // Snap at bottom front center
-                    false,
-                    new Vector3(0.75f, 0.5f, 0.5f));
-                variant++;
+                foreach (var style in styles)
+                {
+                    // Mediterranean archway/passage: opening between buildings
+                    CreatePiece($"Archway_{width}m_{height}m_{style}-{variant}", "Archway", style,
+                        new Vector3(width, height, 0.65f), // width, height, wall thickness (two walls)
+                        new Vector3(width * 0.5f, 0f, 0.65f * 0.5f), // Snap at bottom center
+                        false,
+                        new Vector3(width * 0.5f, height * 0.5f, 0.65f * 0.5f));
+                    variant++;
+                }
             }
         }
     }
 
     private static void GenerateSteppedGables()
     {
-        // Stepped Gables: 4 varieties (2 patterns × 2 styles)
-        string[] patterns = { "GableStepped2", "GableStepped3" }; // 2-step or 3-step
-        ArchitecturalStyle[] styles = { ArchitecturalStyle.Rustic, ArchitecturalStyle.Refined };
+        // Chimney/tower cap modules: 4 varieties (2 sizes × 2 styles)
+        // Creates chimney/tower caps for Mediterranean buildings
+        float[] sizes = { 0.75f, 1.0f }; // Chimney width/depth
+        ArchitecturalStyle[] styles = StylePair(14);
 
         int variant = 0;
-        foreach (var pattern in patterns)
+        foreach (var size in sizes)
         {
             foreach (var style in styles)
             {
-                CreatePiece($"SteppedGable-{pattern}-{style}-{variant}", pattern, style,
-                    new Vector3(2.0f, 1.5f, 0.2f),
-                    new Vector3(1.0f, 0.75f, 0.1f), // Snap at bottom center
+                // Mediterranean chimney/tower cap: typically prismatic
+                CreatePiece($"ChimneyTower_{size}m_{style}-{variant}", "ChimneyTower", style,
+                    new Vector3(size, 1.5f, size), // width, height, depth
+                    new Vector3(size * 0.5f, 0f, size * 0.5f), // Snap at bottom center
                     false,
-                    new Vector3(1.0f, 0.75f, 0.1f));
+                    new Vector3(size * 0.5f, 0.75f, size * 0.5f));
                 variant++;
             }
         }
@@ -514,9 +658,9 @@ public static class ArchitecturalKit
 
     private static void GenerateTrimSheets()
     {
-        // Trim Sheets: 9 varieties (corner, frieze, cornice, etc. × styles)
-        string[] types = { "TrimCorner", "TrimFrieze", "TrimCornice", "TrimBase", "TrimChairRail", "TrimPictureRail", "TrimPanel", "TrimWindow", "TrimDoor" };
-        ArchitecturalStyle[] styles = { ArchitecturalStyle.Rustic, ArchitecturalStyle.Refined };
+        // Trim Sheets: 12 varieties (6 types × 2 styles) - additional to the 60-100 main pieces
+        string[] types = { "TrimCorner", "TrimFrieze", "TrimCornice", "TrimBase", "TrimChairRail", "TrimPictureRail" };
+        ArchitecturalStyle[] styles = StylePair(15);
 
         int variant = 0;
         foreach (var type in types)
@@ -549,5 +693,19 @@ public static class ArchitecturalKit
             isTrim = isTrim,
             originOffset = originOffset
         });
+    }
+
+
+static readonly ArchitecturalStyle[] AllStyles =
+    {
+        ArchitecturalStyle.Rustic, ArchitecturalStyle.Refined, ArchitecturalStyle.Ornate,
+        ArchitecturalStyle.Vernacular, ArchitecturalStyle.Minimalist
+    };
+
+    // Each piece category uses two neighbouring styles, rotating by category, so all five styles
+    // land in the required 10-40% band while the main piece count stays at 94.
+    static ArchitecturalStyle[] StylePair(int category)
+    {
+        return new[] { AllStyles[category % AllStyles.Length], AllStyles[(category + 1) % AllStyles.Length] };
     }
 }

@@ -1,0 +1,53 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 303163654c31ffa46bd829c43e032403, type: 3}
+  m_Name: TestModuleSet
+  m_EditorClassIdentifier: Assembly-CSharp::VillageModuleSet
+  cellSize: 2
+  floorHeight: 2.6
+  wallStraight:
+  - {fileID: 8623644431334225814, guid: e9a783586c678724cb4e3533f4eb14d5, type: 3}
+  wallCornerOuter: []
+  wallCornerInner: []
+  doorModule: {fileID: 8956934175856588384, guid: 99edf915b5698ee4f99164e3e1176cef, type: 3}
+  windowModules:
+  - {fileID: 8038886681467709341, guid: 014418fa0aab9ec4085e552cf80b4d9d, type: 3}
+  archwayModule: {fileID: 0}
+  roofFlatCap:
+  - {fileID: 2319747995232390985, guid: cdd436418be869e4c890e8676648cd6a, type: 3}
+  roofPitchedCap: []
+  chimney: {fileID: 0}
+  parapetTrim: []
+  interiorStairModule: {fileID: 2416344300057898547, guid: 5caaa051b0f12484d96cb3e02a22033e, type: 3}
+  exteriorStairModule: {fileID: 0}
+  floorSlab: {fileID: 2319747995232390985, guid: cdd436418be869e4c890e8676648cd6a, type: 3}
+  foundationSkirt: {fileID: 0}
+  commonRoomProps:
+  - {fileID: 392343498727542348, guid: a39e5e9aad2a3224a8995cb5a521595d, type: 3}
+  - {fileID: 2391264697428008375, guid: 69d41c3aeef770f4f926e69166120275, type: 3}
+  bedroomProps:
+  - {fileID: 3781687454354551979, guid: 757957694ee4b1b4986d6c28bab670fa, type: 3}
+  - {fileID: 2391264697428008375, guid: 69d41c3aeef770f4f926e69166120275, type: 3}
+  kitchenProps:
+  - {fileID: 392343498727542348, guid: a39e5e9aad2a3224a8995cb5a521595d, type: 3}
+  lightingProps: []
+  treeProps:
+  - {fileID: 1534589394081507661, guid: 1268880ca2f610149bd3705a94667f08, type: 3}
+  shrubProps: []
+  statueOrWell: {fileID: 946580367127712866, guid: b5888a66172ab3f43889f763ca0f3410, type: 3}
+  cropRowPrefabs:
+  - {fileID: 6056491716762501960, guid: 156bef05b908e35498689fb5a6906d6c, type: 3}
+  marketStallProps: []
+  whitewashMaterial: {fileID: 0}
+  terracottaMaterial: {fileID: 0}
+  accentDoorMaterial: {fileID: 0}
+  woodTrimMaterial: {fileID: 0}

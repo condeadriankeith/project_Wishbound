@@ -56,14 +56,14 @@ public class IslandWorld : MonoBehaviour
         EnsureMoodAndCamera();
         if (bareIsland)
         {
+            var pmBare = IslandBuilder.Instance ? IslandBuilder.Instance.PathMap : Roads.BuildPathMap();
             BuildWaterfallQuad();
             SetupCameraPresets();
-            Debug.Log($"[IslandWorld:BARE] H(0,0)={H(0,0):F1} H(35,25)={H(35,25):F1} H(-175,-135)={H(-175,-135):F1}");
+            Debug.Log($"[IslandWorld:BARE] H(0,0)={H(0,0):F1} H(35,25)={H(35,25):F1} H(-175,-135)={H(-175,-135):F1} phase5Buildings={BuildingSystem.Buildings.Count}");
             return;
         }
         var pm = IslandBuilder.Instance ? IslandBuilder.Instance.PathMap : Roads.BuildPathMap();
         BuildVegetation(pm);
-        BuildVillage(pm);
         BuildWindmillChapel();
         BuildSpireProps();
         BuildHarborAndBoats();
@@ -816,5 +816,62 @@ void BuildWaterfall()
             U(10, 130, -10), U(20, 95, -35), U(15, 6, dz0 - 18), U(35, ytTop + 24, 25), U(0, 110, 20) };
         i = Mathf.Clamp(i, 0, 4);
         director.FlyTo(P[i], T[i]);
+    }
+
+    void BuildPhase5Village(float[] pm)
+    {
+        // Ensure the phase 5 settlement-layout data is built (positions, yaws,
+        // footprints, floor counts). We no longer use ExteriorDetailSystem's
+        // output here -- the real modular kit's door/window wall prefabs
+        // already carry correct openings, so there's nothing for an abstract
+        // "detail" layer to add on top without risking misalignment.
+        if (!BuildingSystem.Built) BuildingSystem.Build();
+
+        // Create a parent object for the village
+        var villageRoot = new GameObject("Phase5Village");
+
+        // Iterate over each building, replacing each one with a real modular
+        // house built from Assets/FantasyMedievalTown_LITE/Prefabs/ (see
+        // ModularHouseBuilder for the grid math). NOTE: this intentionally
+        // ignores building.floors for geometry -- the LITE kit has no
+        // second-story wall pieces, so every building becomes a correct
+        // single-story house rather than a stacked/stretched approximation.
+        // Footprints are snapped to whole 2.5m grid cells (clamped 2-4 cells
+        // per axis) so every house is built from flush, non-overlapping
+        // modules with no gaps, no overlaps, and no floating pieces.
+        foreach (var building in BuildingSystem.Buildings)
+        {
+            if (building == null) continue;
+
+            var (cols, rows) = ModularHouseBuilder.SnapFootprintToGrid(building.footprint);
+
+            // Deterministic per-building variety: door on a chosen edge/slot,
+            // a handful of windows scattered on the rest. Seeded by building
+            // id so layout is stable across rebuilds in the same session.
+            var rng = new System.Random(building.id * 7919 + 13);
+            int doorEdge = rng.Next(4);
+            int doorEdgeLen = (doorEdge % 2 == 0) ? cols : rows;
+            int doorIdx = rng.Next(doorEdgeLen);
+            int windowCount = Mathf.Clamp((cols * 2 + rows * 2) / 2, 1, 6);
+
+            var hp = new ModularHouseBuilder.HouseParams
+            {
+                cols = cols,
+                rows = rows,
+                doorEdge = doorEdge,
+                doorIndexOnEdge = doorIdx,
+                windowCount = windowCount,
+                seed = building.id
+            };
+
+            var buildingGo = ModularHouseBuilder.Build(
+                $"Building_{building.id}",
+                // Model space -> Unity space: Z is mirrored (TerrainMath.MirrorZ) and yaw flips sign.
+                // Height comes from the RENDERED mesh (Hm), not the analytic field (Hf), so houses sit flush.
+                TerrainMath.U(building.position.x, TerrainMath.Hm(building.position.x, building.position.z), building.position.z),
+                TerrainMath.YawToUnity(building.yaw),
+                hp);
+            buildingGo.transform.SetParent(villageRoot.transform, true);
+        }
     }
 }

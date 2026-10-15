@@ -1,0 +1,168 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: af1440f5a72494342b36cd7a132c6ad7, type: 3}
+  m_Name: VillageCatalog
+  m_EditorClassIdentifier: Assembly-CSharp::VillageCatalog
+  entries:
+  - id: SmallMedievalHouse
+    prefab: {fileID: 5848559838388159294, guid: 9c112192efc3a994f86dbdb85b4fc4d2, type: 3}
+    kind: 0
+    footprint: {x: 6.1046057, y: 5.905856}
+    centerXZ: {x: 0.0072875023, y: 0.11969185}
+    height: 6.6297503
+    minY: -0.014687061
+    floors: 1
+    weight: 1
+  - id: MedievalHouse
+    prefab: {fileID: 4612788670551400677, guid: 48c4d955d703cb94da4f2bc559cba0b7, type: 3}
+    kind: 0
+    footprint: {x: 6.869543, y: 7.804322}
+    centerXZ: {x: 0.058223724, y: -0.04714036}
+    height: 7.176635
+    minY: -0.035650253
+    floors: 1
+    weight: 1
+  - id: TwoStoryMedievalHouse
+    prefab: {fileID: 12091907033042121, guid: 1cd49aebc0b529443b476a095ca49c61, type: 3}
+    kind: 0
+    footprint: {x: 7.341626, y: 7.467704}
+    centerXZ: {x: -0.20918226, y: 0.21148038}
+    height: 9.210858
+    minY: -0.0048713684
+    floors: 2
+    weight: 1
+  - id: TwoStoryMedievalHouse_2
+    prefab: {fileID: 3959723964706341321, guid: 63647fae36bcafa46b35a68712120577, type: 3}
+    kind: 0
+    footprint: {x: 6.0141497, y: 5.8872986}
+    centerXZ: {x: 0.07647061, y: -0.0017585754}
+    height: 8.009997
+    minY: -0.012507677
+    floors: 2
+    weight: 1
+  - id: HayBale
+    prefab: {fileID: 6223032875980883212, guid: 6e5d5bd304c38fe4fab030c3a8bca730, type: 3}
+    kind: 1
+    footprint: {x: 0.8073392, y: 0.7822151}
+    centerXZ: {x: -0.004507512, y: -0.003512144}
+    height: 0.78087217
+    minY: -0.3857717
+    floors: 0
+    weight: 1
+  - id: WoodenBarrel
+    prefab: {fileID: 5035870290092859782, guid: cc6b8caace3ab064388b2badd7886952, type: 3}
+    kind: 1
+    footprint: {x: 0.60885745, y: 0.6062374}
+    centerXZ: {x: 0.0050311983, y: -0.0010714531}
+    height: 0.64335585
+    minY: -0.0007531643
+    floors: 0
+    weight: 1
+  - id: WoodenCrate
+    prefab: {fileID: 4671349373403710683, guid: a114e28d33200e643b7cdda211223467, type: 3}
+    kind: 1
+    footprint: {x: 0.5994436, y: 0.5917003}
+    centerXZ: {x: 0.007757634, y: -0.0017576814}
+    height: 0.6000909
+    minY: -0.0005519986
+    floors: 0
+    weight: 1
+  - id: WoodenFence
+    prefab: {fileID: 459053707645360543, guid: d5085d7af4dea1645b3830d3b0e5c38b, type: 3}
+    kind: 2
+    footprint: {x: 1.3484433, y: 0.1631293}
+    centerXZ: {x: -0.0019408464, y: -0.01055038}
+    height: 0.9271943
+    minY: 0.000032126904
+    floors: 0
+    weight: 1
+  - id: WoodenGate
+    prefab: {fileID: 8030952576284474398, guid: bb93e4c54a8dadc47bf724c8182a7eb8, type: 3}
+    kind: 3
+    footprint: {x: 1.3644984, y: 0.17968021}
+    centerXZ: {x: 0.0053259134, y: -0.009557478}
+    height: 1.2261033
+    minY: -0.000088214874
+    floors: 0
+    weight: 1
+  - id: SmallRock
+    prefab: {fileID: 8331704037881844495, guid: be5acc26923a50843b50fcb900e299ec, type: 3}
+    kind: 4
+    footprint: {x: 1.399229, y: 1.2161536}
+    centerXZ: {x: 0.01516211, y: -0.0062781572}
+    height: 1.1399965
+    minY: -0.0037089586
+    floors: 0
+    weight: 1
+  - id: RockCluster
+    prefab: {fileID: 6875165543768339273, guid: 86f4725bc6fa02843b4e89e244d102f6, type: 3}
+    kind: 4
+    footprint: {x: 1.2732375, y: 1.213378}
+    centerXZ: {x: 0.039046526, y: 0.0002503395}
+    height: 1.211113
+    minY: -0.006045699
+    floors: 0
+    weight: 1
+  - id: MossyBoulder
+    prefab: {fileID: 6869997719537023144, guid: 5487e7265f420f54280e940cdd3e335f, type: 3}
+    kind: 4
+    footprint: {x: 1.1103607, y: 1.132564}
+    centerXZ: {x: -0.029938161, y: 0.02351445}
+    height: 0.9525366
+    minY: -0.00895071
+    floors: 0
+    weight: 1
+  - id: RuinedWall
+    prefab: {fileID: 484854566286385604, guid: 08c3cc8f966ff33489b28097686ea37f, type: 3}
+    kind: 5
+    footprint: {x: 2.9965997, y: 1.5381086}
+    centerXZ: {x: -0.15267873, y: 0.09102261}
+    height: 2.5935366
+    minY: 0.00042676926
+    floors: 0
+    weight: 1
+  - id: RuinedArchway
+    prefab: {fileID: 65296727843408553, guid: daccb0902b553834299b0055dfe01ff3, type: 3}
+    kind: 5
+    footprint: {x: 2.8437076, y: 2.1321511}
+    centerXZ: {x: -0.018202305, y: -0.009313107}
+    height: 3.472184
+    minY: -0.0005390644
+    floors: 0
+    weight: 1
+  - id: StoneWall
+    prefab: {fileID: 5958235003302548199, guid: 9c7aa9209b3329d47ac6005cf41ef085, type: 3}
+    kind: 6
+    footprint: {x: 3.0292647, y: 0.5288241}
+    centerXZ: {x: -0.045177817, y: -0.016589344}
+    height: 1.680867
+    minY: -0.0012956858
+    floors: 0
+    weight: 1
+  - id: CastleWall
+    prefab: {fileID: 7940770758356657822, guid: 0319d138bbd16aa47aed82bddc771fc8, type: 3}
+    kind: 6
+    footprint: {x: 7.7323585, y: 4.7397213}
+    centerXZ: {x: 0.11839414, y: -0.076939106}
+    height: 6.1949196
+    minY: -0.031386375
+    floors: 0
+    weight: 1
+  - id: CastleTower
+    prefab: {fileID: 5457520718203635816, guid: de243834d3b1376448342bb337a1049d, type: 3}
+    kind: 7
+    footprint: {x: 5.651517, y: 6.034137}
+    centerXZ: {x: 0.057742596, y: -0.23243809}
+    height: 12.585286
+    minY: -0.015181541
+    floors: 0
+    weight: 1
