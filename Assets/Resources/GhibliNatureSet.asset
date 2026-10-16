@@ -1,0 +1,375 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5f70eee0df5b3ad4481dad8cc74bb6f5, type: 3}
+  m_Name: GhibliNatureSet
+  m_EditorClassIdentifier: Assembly-CSharp::GhibliNatureSet
+  trees:
+  - name: Big Tree
+    mesh: {fileID: 8887286738831637877, guid: 8e1947952612b5e41974424a9e1c6c88, type: 3}
+    materials:
+    - {fileID: 2100000, guid: f8cc17b76422cc444a91e9cce1b19d31, type: 2}
+    - {fileID: 2100000, guid: b549da7dab4556a45b00d5c3a23f93e3, type: 2}
+    size: {x: 33.806026, y: 37.46368, z: 33.355507}
+    minY: -0.29691696
+    maxY: 37.166763
+  - name: Tree_01
+    mesh: {fileID: 3321038166390182913, guid: 4fefc1efb7482654d8501f9356b52130, type: 3}
+    materials:
+    - {fileID: 2100000, guid: d3ec8e79e0ae49b4f81462cf4302c95c, type: 2}
+    - {fileID: 2100000, guid: dee3ac053f97e0e449e129c9d9ee6e29, type: 2}
+    size: {x: 4.705896, y: 8.080379, z: 4.1613994}
+    minY: -0.059620857
+    maxY: 8.020758
+  - name: Tree_02
+    mesh: {fileID: -8417914119756511045, guid: 6336892bd1f12d544a5e1a1064faeb9c, type: 3}
+    materials:
+    - {fileID: 2100000, guid: 3a2829625123b62489943ae77260c447, type: 2}
+    - {fileID: 2100000, guid: b4f87bb2bd99a754b83ec9820e7991dc, type: 2}
+    size: {x: 2.984601, y: 8.119795, z: 2.6028275}
+    minY: -0.032048225
+    maxY: 8.087747
+  - name: Tree_03
+    mesh: {fileID: -886050140227437256, guid: 17559aaf5aed6c445bd3cf19f37ff590, type: 3}
+    materials:
+    - {fileID: 2100000, guid: 7f530ff64715fd343aad32747b65e9a3, type: 2}
+    - {fileID: 2100000, guid: e123fb59c21196f458c92d4f31597079, type: 2}
+    size: {x: 3.5472226, y: 4.3434496, z: 2.511694}
+    minY: -0.033851147
+    maxY: 4.3095984
+  - name: Tree_04
+    mesh: {fileID: -1082242760313104146, guid: 695ca0c564e7a60469eaa6e870b1d067, type: 3}
+    materials:
+    - {fileID: 2100000, guid: 154429ac964c9eb45b2ba57aaaf143f0, type: 2}
+    - {fileID: 2100000, guid: 2fb3c0248c0a941429ee28af111d2a09, type: 2}
+    size: {x: 11.054231, y: 10.828408, z: 7.5298586}
+    minY: -0.03715229
+    maxY: 10.791256
+  - name: Tree_05
+    mesh: {fileID: 4447360150171291665, guid: 6e574241be0948b4c8c0c077f67770a8, type: 3}
+    materials:
+    - {fileID: 2100000, guid: 2f619f16d8c563a4b9e8ab75e4e52841, type: 2}
+    - {fileID: 2100000, guid: adc3fbf8e2114f04f9539d50e598f347, type: 2}
+    size: {x: 2.4959202, y: 5.892349, z: 2.4018087}
+    minY: -0.03646469
+    maxY: 5.855884
+  shrubs:
+  - name: Shrubs_01
+    mesh: {fileID: -934316004348300347, guid: 6fd64101af590b74185ca9a47cc48887, type: 3}
+    materials:
+    - {fileID: 2100000, guid: 87ccab50ea8296544bb46f2882b38d82, type: 2}
+    size: {x: 0.98366785, y: 0.70004565, z: 0.7981782}
+    minY: -0.061793625
+    maxY: 0.638252
+  - name: Shrubs_02
+    mesh: {fileID: 2415685460419363953, guid: ebd5f0458c427594faadf6d06d90d4df, type: 3}
+    materials:
+    - {fileID: 2100000, guid: 75ebe52f849704a42ad796dcfde6e083, type: 2}
+    size: {x: 1.5726888, y: 0.75132215, z: 0.92469496}
+    minY: -0.07796317
+    maxY: 0.673359
+  - name: Shrubs_03
+    mesh: {fileID: 2870456220768843939, guid: 33167cedc3724d84bb8a659019fca047, type: 3}
+    materials:
+    - {fileID: 2100000, guid: 0b439452d7565d946935dac7da582a99, type: 2}
+    size: {x: 1.2794359, y: 1.0103154, z: 0.8163156}
+    minY: -0.10591078
+    maxY: 0.90440464
+  grass:
+  - name: Gras_01
+    mesh: {fileID: 1601360176060490259, guid: fe337accdc455df4e91893cbd8835143, type: 3}
+    materials:
+    - {fileID: 2100000, guid: af27ce07faf42764599f76e7b9e6781b, type: 2}
+    size: {x: 0.26565605, y: 0.32574305, z: 0.26262045}
+    minY: -0.0046778023
+    maxY: 0.32106525
+  - name: Gras_02
+    mesh: {fileID: 8612549389393653570, guid: b01884a1357958b44b482be3a5dd58dc, type: 3}
+    materials:
+    - {fileID: 2100000, guid: 8dcb5a811135b8c478b192d8c58a7b61, type: 2}
+    size: {x: 0.19088772, y: 0.2792402, z: 0.16161829}
+    minY: -0.010035932
+    maxY: 0.26920426
+  - name: Gras_03
+    mesh: {fileID: -1264866875819394213, guid: 25b18cdc2811f1142bff66abb1d31b8c, type: 3}
+    materials:
+    - {fileID: 2100000, guid: 49666306de170a847ae6b45ae73c58de, type: 2}
+    size: {x: 0.5260496, y: 0.3344993, z: 0.5040872}
+    minY: -0.0069126487
+    maxY: 0.32758665
+  flowers:
+  - name: Flower_01_1
+    mesh: {fileID: -7984843210202070730, guid: 8da657bb0b8d6524fa187c43b9fff846, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.077788025, y: 0.009324278, z: 0.07948945}
+    minY: -0.0023584422
+    maxY: 0.0069658356
+  - name: Flower_01_2
+    mesh: {fileID: -3767850467994318297, guid: f23dc963469698c4399f6afe59df1579, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.077788025, y: 0.28495106, z: 0.053479422}
+    minY: -0.0017392933
+    maxY: 0.28321177
+  - name: Flower_01_3
+    mesh: {fileID: 4698722879985321937, guid: e156085258e3e364db15ffed0eecb362, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.13985938, y: 0.28495106, z: 0.055220224}
+    minY: -0.0017392933
+    maxY: 0.28321177
+  - name: Flower_02_1
+    mesh: {fileID: 2579630655944934065, guid: d489709fe7383d247b1334d4a0b82881, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.07867672, y: 0.007902808, z: 0.07567929}
+    minY: 0
+    maxY: 0.007902808
+  - name: Flower_02_2
+    mesh: {fileID: -1569992942057360859, guid: 5ed1b939b2cd06543bb5f810ae7dbc7a, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.07862, y: 0.26404268, z: 0.05672825}
+    minY: -0.0017642975
+    maxY: 0.26227838
+  - name: Flower_02_3
+    mesh: {fileID: -5601392501787016645, guid: 1b20f8a170ae2004597d3f365306db00, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.13985935, y: 0.2797325, z: 0.06613524}
+    minY: -0.0015772283
+    maxY: 0.27815527
+  - name: Flower_03_1
+    mesh: {fileID: -5844156313971997118, guid: 63b9f6ca5e56edd42bb7758b5134c9e6, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.077002816, y: 0.010399581, z: 0.07510729}
+    minY: 0
+    maxY: 0.010399581
+  - name: Flower_03_2
+    mesh: {fileID: 7024225314049860325, guid: 1c9f5f33ab2dc8445942023729122061, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.077002816, y: 0.27859375, z: 0.06140417}
+    minY: -0.0018446743
+    maxY: 0.27674907
+  - name: Flower_03_3
+    mesh: {fileID: -6490253655496643953, guid: b3fae07ffee9d1b47be855e3acde3167, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.13985935, y: 0.27859378, z: 0.06314496}
+    minY: -0.0022675097
+    maxY: 0.27632627
+  - name: Flower_04_1
+    mesh: {fileID: 6562561163043430962, guid: f524ec5820090fe4ca0732461f230abb, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.081606194, y: 0.007455456, z: 0.07541248}
+    minY: -0.001459484
+    maxY: 0.005995972
+  - name: Flower_04_2
+    mesh: {fileID: 8113202066632199089, guid: 7429c981bfc33994dbaf4c9b57206fd7, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.0816087, y: 0.28031564, z: 0.06170484}
+    minY: -0.0021240413
+    maxY: 0.2781916
+  - name: Flower_04_3
+    mesh: {fileID: -3200566949657409144, guid: 0f69eb43c810c7942ac7b795016865d9, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.13985935, y: 0.28031564, z: 0.06344566}
+    minY: -0.0026525855
+    maxY: 0.27766305
+  - name: Flower_05_1
+    mesh: {fileID: 7143346914973082777, guid: 9979d1c25a1259c479eb8fb4bdb834ff, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.07864138, y: 0.008030984, z: 0.07625874}
+    minY: 0
+    maxY: 0.008030984
+  - name: Flower_05_2
+    mesh: {fileID: 7413317962288726706, guid: e943df8a0730c3b47a5d68765e2cb135, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.07864138, y: 0.2791867, z: 0.06330549}
+    minY: -0.0026764572
+    maxY: 0.27651024
+  - name: Flower_05_3
+    mesh: {fileID: 6775165796975903328, guid: a4242f48184d17e4c9cd8b401670de70, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.13985935, y: 0.2791867, z: 0.0650463}
+    minY: -0.0028878748
+    maxY: 0.27629882
+  - name: Flower_06_1
+    mesh: {fileID: -2746414504183442808, guid: 09ae4b9d9e93aeb44b15109d716dd20b, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.11997461, y: 1.0463736, z: 0.119974606}
+    minY: -0.0044418573
+    maxY: 1.0419317
+  - name: Flower_06_2
+    mesh: {fileID: 3211455852716203745, guid: ef3a979b00f93a548b269bfe49a2599e, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.42356688, y: 1.0483347, z: 0.2410588}
+    minY: -0.006095767
+    maxY: 1.042239
+  - name: Flower_07_1
+    mesh: {fileID: -1638864413134991539, guid: 9c80b654ed08a8a44b042896e34babe0, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.11428891, y: 0.9714589, z: 0.114288904}
+    minY: -0.0044417977
+    maxY: 0.9670171
+  - name: Flower_07_2
+    mesh: {fileID: 1565660176423312498, guid: 82676a16f5b789849a1bbdde22d36420, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.415649, y: 0.9711516, z: 0.2410588}
+    minY: -0.004134536
+    maxY: 0.96701705
+  - name: Flower_08_1
+    mesh: {fileID: -2172462840200507212, guid: af40d42cc5a892d4ab138e7e10e1c8f5, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.12503502, y: 0.8503433, z: 0.09275833}
+    minY: -0.0050097704
+    maxY: 0.8453335
+  - name: Flower_08_2
+    mesh: {fileID: 858083368326609515, guid: a5bc44c4f541c4d49920bb93e323d8c9, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.36175728, y: 0.8508539, z: 0.39104798}
+    minY: -0.0055204034
+    maxY: 0.8453335
+  - name: Flower_09_1
+    mesh: {fileID: -7458577008156890615, guid: 8d9e72a0ced6d4746a4f4e2aefc3fb61, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.11910305, y: 0.84810454, z: 0.09030326}
+    minY: -0.0050097704
+    maxY: 0.84309477
+  - name: Flower_09_2
+    mesh: {fileID: -8705033963939375976, guid: 1bf32a6d3306d2745ad0b53a62af0517, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.36175728, y: 0.84861517, z: 0.39104798}
+    minY: -0.0055204034
+    maxY: 0.84309477
+  - name: Flower_10
+    mesh: {fileID: -2768177143722812749, guid: cc46e2b96ef90124eae5554501469ee7, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.07345481, y: 0.43108588, z: 0.06805475}
+    minY: -0.0024127662
+    maxY: 0.42867312
+  - name: Flower_11
+    mesh: {fileID: -632075202380717846, guid: 94b8d5b385f39ac4fa081956407e3483, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.097314015, y: 0.44348145, z: 0.095063426}
+    minY: -0.0024127662
+    maxY: 0.44106868
+  - name: Flower_12
+    mesh: {fileID: -2533593717419047000, guid: bfba5779065f72c418e4546c78dfdebe, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.08471933, y: 0.41861627, z: 0.08243094}
+    minY: -0.0024127662
+    maxY: 0.4162035
+  - name: Flower_13
+    mesh: {fileID: 7109151661483490433, guid: 72ad64468be365d4785f2cb05a04d918, type: 3}
+    materials:
+    - {fileID: 2100000, guid: c97a8ee049484844a8dd1cb0c217853e, type: 2}
+    size: {x: 0.08196236, y: 0.43309188, z: 0.08201353}
+    minY: -0.0024127662
+    maxY: 0.4306791
+  rocks:
+  - name: Rock_01
+    mesh: {fileID: -5557097801335375800, guid: 064a5941ce331c74ebe5c1f551b4a907, type: 3}
+    materials:
+    - {fileID: 2100000, guid: 8cbc2e0b6b9f5234e9e1293a5602e4a4, type: 2}
+    size: {x: 0.20543352, y: 0.11965528, z: 0.16421656}
+    minY: -0.0029587746
+    maxY: 0.11669651
+  - name: Rock_02
+    mesh: {fileID: -2192601286580396923, guid: e9bc9f2079c9c5e4d99f1967c4753e4a, type: 3}
+    materials:
+    - {fileID: 2100000, guid: 8cbc2e0b6b9f5234e9e1293a5602e4a4, type: 2}
+    size: {x: 0.15852603, y: 0.121582255, z: 0.17340681}
+    minY: -0.01976151
+    maxY: 0.101820745
+  - name: Rock_03
+    mesh: {fileID: 8894233362148891966, guid: 4c232f1eb99b49d448b3595a984da461, type: 3}
+    materials:
+    - {fileID: 2100000, guid: 8cbc2e0b6b9f5234e9e1293a5602e4a4, type: 2}
+    size: {x: 0.21401304, y: 0.04011288, z: 0.13256764}
+    minY: -0.0026517138
+    maxY: 0.037461165
+  - name: Rock_04
+    mesh: {fileID: -4306793071288084865, guid: f1540356f47772d409dd1941b41b0ef5, type: 3}
+    materials:
+    - {fileID: 2100000, guid: 64acec50a1ed1f94ea132165c41d1db1, type: 2}
+    size: {x: 0.85222816, y: 0.3984362, z: 0.82677686}
+    minY: -0.05753711
+    maxY: 0.34089908
+  - name: Rock_05
+    mesh: {fileID: -3349908014655447266, guid: 4c1a12f85db96c54b83638982c96cb8b, type: 3}
+    materials:
+    - {fileID: 2100000, guid: cb95615151f1f7c4cbb5573b4ada9320, type: 2}
+    size: {x: 0.6847706, y: 0.33448526, z: 0.7890947}
+    minY: -0.015608907
+    maxY: 0.31887636
+  - name: Rock_06
+    mesh: {fileID: 1587088305714490226, guid: c9c2acfb7bdacdb4c87a4c22190463db, type: 3}
+    materials:
+    - {fileID: 2100000, guid: 2196c6c2678a2004c864aed5f4b5f1a1, type: 2}
+    size: {x: 1.240366, y: 0.74533814, z: 0.81841683}
+    minY: -0.042929232
+    maxY: 0.7024089
+  - name: Rock_07
+    mesh: {fileID: 3083526671889827907, guid: e4fd1095666c7b74cb5ed5663770eee6, type: 3}
+    materials:
+    - {fileID: 2100000, guid: 7fdb5df379d8bdc47a4c6f8daaef1f25, type: 2}
+    size: {x: 1.8114567, y: 1.4794188, z: 1.8456261}
+    minY: -0.18779206
+    maxY: 1.2916267
+  - name: Rock_08
+    mesh: {fileID: -3178888398804093750, guid: e1a53d7c5410be141a105baf39b488dd, type: 3}
+    materials:
+    - {fileID: 2100000, guid: 96ad847a7204faa4db07bfa0cf3c66ff, type: 2}
+    size: {x: 7.6394076, y: 1.7202163, z: 5.10658}
+    minY: -0.052384853
+    maxY: 1.6678314
+  - name: Rock_09
+    mesh: {fileID: 4645050801090991353, guid: 33f49444ba4dee34b842106de1fc6380, type: 3}
+    materials:
+    - {fileID: 2100000, guid: b5a8e0217b972454c89fbf2b6deb3210, type: 2}
+    size: {x: 3.3724327, y: 1.551445, z: 1.6606973}
+    minY: -0.13453972
+    maxY: 1.4169053
+  - name: Rock_10
+    mesh: {fileID: -6828441932526645977, guid: a26e09f73425a8047b830b76ecf6ef4b, type: 3}
+    materials:
+    - {fileID: 2100000, guid: 5de7bf4371b81cc4fa1aa5089ead4aef, type: 2}
+    size: {x: 3.8050451, y: 1.4284996, z: 2.7184918}
+    minY: -0.021037102
+    maxY: 1.4074625
+  - name: Rock_11
+    mesh: {fileID: 5734593752525130453, guid: 116e929e21c83354fae50b048b4b687d, type: 3}
+    materials:
+    - {fileID: 2100000, guid: e7c227e465ba92446b3a4d5ee41115eb, type: 2}
+    size: {x: 8.19776, y: 4.6014886, z: 7.880845}
+    minY: 0.06834984
+    maxY: 4.6698384

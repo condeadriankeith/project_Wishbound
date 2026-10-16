@@ -130,8 +130,14 @@ static void SmoothTail(double[] e, int from) { from = Math.Max(1, from); for (in
                     if (fdAvg > 0.08f && cascAvg < 0.7f)
                         WaterField.Add(new WaterField.Seg { x0 = (float)X[m], z0 = (float)Z[m], x1 = (float)X[m + 1], z1 = (float)Z[m + 1], y0 = (float)yc[m], y1 = (float)yc[m + 1], w0 = (float)((eL[m] + eR[m]) * 0.5), w1 = (float)((eL[m + 1] + eR[m + 1]) * 0.5), v0 = SP[m], v1 = SP[m + 1] });
                 }
-                // waterline pebble CHAINS + bank rocks: dense at the water's edge, biased to outer bends
-                if (m < M && FD[m] > 0.25f)
+                // waterline pebble CHAINS + bank rocks: dense at the water's edge, biased to outer bends.
+                // Gated on FL[m] (cascade/steepness mask) too: on a waterfall run FL[m] is high and X[m]/Z[m]
+                // barely moves while yc[m] drops fast, so placing rocks via the bank-offset formula here
+                // lands them on/inside the near-vertical falls face or column instead of the real bank --
+                // that's the 'rocks embedded in the waterfall' bug. Skip this bank-pebble logic entirely
+                // on steep/falls ground; plunge-pool boulders (placed separately, with a slope check) cover
+                // rocks at the base of a falls.
+                if (m < M && FD[m] > 0.25f && FL[m] < 0.35f)
                 {
                     int mn = Math.Min(N - 1, m + 1);
                     double turn = tx[m] * tz[mn] - tz[m] * tx[mn];
@@ -140,10 +146,16 @@ static void SmoothTail(double[] e, int from) { from = Math.Max(1, from); for (in
                     {
                         double ext = side > 0 ? eR[m] : eL[m];
                         int nPeb = 1 + (rnd.NextDouble() < 0.6 ? 1 : 0) + (side == outer && rnd.NextDouble() < 0.5 ? 1 : 0);
+                        // jitter each pebble independently in BOTH the cross-bank offset and the along-bank
+                        // position (alongJ), instead of a linear qp-indexed offset at a fixed m -- the old
+                        // version produced visible straight/diagonal rows because every pebble at a given m
+                        // sat on the same transverse line, evenly spaced only by the small 0.08*qp term.
                         for (int qp = 0; qp < nPeb; qp++)
                         {
-                            double off = side * ext * (0.92 + 0.08 * qp + rnd.NextDouble() * 0.14);
-                            RiverRocks.Add(X[m] - tz[m] * off + (rnd.NextDouble() - 0.5) * 0.6, Z[m] + tx[m] * off + (rnd.NextDouble() - 0.5) * 0.6,
+                            double off = side * ext * (0.75 + rnd.NextDouble() * 0.45);
+                            double alongJ = (rnd.NextDouble() - 0.5) * 1.6; // metres, drifts along the bank tangent
+                            RiverRocks.Add(X[m] - tz[m] * off + tx[m] * alongJ + (rnd.NextDouble() - 0.5) * 0.5,
+                                            Z[m] + tx[m] * off + tz[m] * alongJ + (rnd.NextDouble() - 0.5) * 0.5,
                                 (float)(0.05 + 0.11 * rnd.NextDouble() * rnd.NextDouble() + 0.05 * FL[m]), rnd);
                         }
                         if (rnd.NextDouble() < (0.28 + 0.35 * FL[m]) * (side == outer ? 1.6 : 1.0))
@@ -178,10 +190,18 @@ static void SmoothTail(double[] e, int from) { from = Math.Max(1, from); for (in
                         int t = m0;
                         for (int s = 0; s < 6 && t > 0 && casc[t - 1] < 0.75f; s++) t--;
                         WaterBuilder.AddFall(X, yc, Z, t, e, fwid, fdrop);
-                        for (int q = 0; q < 5; q++)   // plunge-pool boulders at the falls base
+                        int placed = 0, tries = 0;
+                        while (placed < 5 && tries < 25)   // plunge-pool boulders at the falls base
                         {
-                            double an = rnd.NextDouble() * 6.2832, rr = HW[e] + 1.5 + rnd.NextDouble() * 2.5;
-                            RiverRocks.Add(X[e] + Math.Cos(an) * rr, Z[e] + Math.Sin(an) * rr, (float)(0.4 + rnd.NextDouble() * 0.7), rnd);
+                            tries++;
+                            double an = rnd.NextDouble() * 6.2832, rr = HW[e] * 0.6 + 1.0 + rnd.NextDouble() * 1.8;
+                            double bx = X[e] + Math.Cos(an) * rr, bz = Z[e] + Math.Sin(an) * rr;
+                            // reject points on steep ground (cliff/falls face) -- a boulder there sits on the
+                            // wall, not the pool floor, and reads as floating over the falls from most angles.
+                            Vector3 bn = TerrainMath.NV(bx, bz);
+                            if (bn.y < 0.82f) continue; // ~35 degrees+ slope: skip, try another ring point
+                            RiverRocks.Add(bx, bz, (float)(0.4 + rnd.NextDouble() * 0.7), rnd);
+                            placed++;
                         }
                     }
                     m0 = -1;

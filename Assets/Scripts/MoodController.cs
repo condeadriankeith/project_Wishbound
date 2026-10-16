@@ -70,6 +70,16 @@ public class MoodController : MonoBehaviour
         Shader.SetGlobalVector("_HemiSky", (Vector4)(Vector3)(Vector4)cur.hs);
         Shader.SetGlobalColor("_HemiSky", cur.hs); Shader.SetGlobalColor("_HemiGround", cur.hg);
         Shader.SetGlobalFloat("_HemiIntensity", cur.hi);
+        // Keep Unity's BUILT-IN ambient synced to the same mood data. The custom _Hemi* globals above only
+        // feed our own Ghibli/ToonLit-family shaders (trees, grass); imported package meshes -- e.g. the
+        // GHIBLI rock prefabs, which use their own Shader Graphs/Layered material -- read Unity's standard
+        // RenderSettings.ambient* instead and never see _HemiSky/_HemiGround at all. Without this, those
+        // meshes are lit by whatever ambient was last set manually (stale, mood-independent), which is why
+        // rocks were going pitch-black on their shadow side once the sun moved off a manually-tuned angle.
+        RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Trilight;
+        RenderSettings.ambientSkyColor = cur.hs * cur.hi;
+        RenderSettings.ambientEquatorColor = Color.Lerp(cur.hg, cur.hs, 0.5f) * cur.hi;
+        RenderSettings.ambientGroundColor = cur.hg * cur.hi;
         if (oceanMat) { oceanMat.SetColor("_CDeep", cur.dp); oceanMat.SetColor("_CShal", cur.sh); }
         Shader.SetGlobalVector("_GhibliSunDirSrc", sunSrc);
         Shader.SetGlobalColor("_GhibliFogColor", cur.fog);

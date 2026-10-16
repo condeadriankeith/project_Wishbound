@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using static TerrainMath;
 
@@ -31,6 +32,50 @@ public static class Surface
         return pm[vj * V + vi];
     }
 
+    // --- RoadBuild awareness -------------------------------------------------------------------------
+    // PathAt()/PathMap above come from the OLDER settlement-road system (Roads.BuildPathMap, baked once at
+    // terrain build time) and never learned about RoadBuild's later, real graded roads (the ones with bridges,
+    // grading, etc). Grass was planting right through those roads because of that gap. This rebuilds a cheap
+    // flat list of road centreline segments + half-widths from RoadBuild once per terrain build and answers
+    // 0..1 'on the road, fading at the shoulder' the same way PathAt does, so callers can blend both sources.
+    struct RoadSeg { public double x0, z0, x1, z1, halfW; }
+    static List<RoadSeg> roadSegs;
+    static int roadSegsBuiltHash = int.MinValue;
+
+    static void BuildRoadSegs()
+    {
+        roadSegs = new List<RoadSeg>();
+        foreach (var r in RoadBuild.Roads)
+            for (int i = 0; i < r.x.Length - 1; i++)
+                roadSegs.Add(new RoadSeg { x0 = r.x[i], z0 = r.z[i], x1 = r.x[i + 1], z1 = r.z[i + 1], halfW = r.halfW[i] + Shoulder });
+        roadSegsBuiltHash = RoadBuild.Hash;
+    }
+
+    // Extra feather beyond the graded running surface so grass doesn't plant in a hard line right at the edge.
+    const double Shoulder = 1.5;
+
+    /// <summary>0 clear of any RoadBuild road, 1 on/inside its running surface, feathering out across the
+    /// shoulder in between. Independent of the legacy PathAt() above; callers that want both should combine
+    /// them (e.g. Mathf.Max) rather than replace one with the other, since some decorative paths only exist
+    /// in the legacy system.</summary>
+    public static double RoadPathAt(double x, double z)
+    {
+        if (roadSegs == null || roadSegsBuiltHash != RoadBuild.Hash) BuildRoadSegs();
+        double best = 0;
+        foreach (var seg in roadSegs)
+        {
+            double vx = seg.x1 - seg.x0, vz = seg.z1 - seg.z0, l2 = vx * vx + vz * vz;
+            double t = l2 > 1e-9 ? ((x - seg.x0) * vx + (z - seg.z0) * vz) / l2 : 0;
+            t = t < 0 ? 0 : (t > 1 ? 1 : t);
+            double dx = x - (seg.x0 + t * vx), dz = z - (seg.z0 + t * vz);
+            double d = System.Math.Sqrt(dx * dx + dz * dz);
+            // full road halfW counts as fully "on path"; fades to 0 over one more Shoulder width beyond that
+            double v = 1.0 - Sm(seg.halfW - Shoulder, seg.halfW + Shoulder, d);
+            if (v > best) best = v;
+        }
+        return best;
+    }
+
     public static SurfaceType Classify(double x, double z, double h, double ny, double path)
     {
         if (h <= 0.3) return SurfaceType.Water;
@@ -51,11 +96,32 @@ public static class Surface
     public static double GrassDensity(SurfaceType t, double h, double ny, double path)
     {
         double d;
-        if (t == SurfaceType.Grass) d = 1; else if (t == SurfaceType.Field) d = 0.35; else return 0;
-        d *= Sm(0.80, 0.88, ny);          // thin out toward steep ground
-        d *= Sm(2.8, 4.5, h);             // feather in above the sand line (dune grass)
-        d *= 1 - path;                    // thin along paths
+        if (t == SurfaceType.Grass) d = 1; else if (t == SurfaceType.Field) d = 0.45; else return 0;
+        d *= Sm(0.78, 0.88, ny);          // thin out toward steep ground (slightly wider band = fuller coverage)
+        d *= Sm(2.4, 4.0, h);             // feather in above the sand line (dune grass), starts a touch sooner
+        d *= 1 - path;                    // thin along the legacy settlement-road path map
         return d;
+    }
+
+    /// <summary>Like GrassDensity, but also thins out along RoadBuild's real graded roads (bridges, grading,
+    /// etc - a separate system from the legacy PathAt map above). IslandStylizedGrass should call this instead
+    /// of GrassDensity directly so grass doesn't grow through visible roads.</summary>
+    public static double GrassDensityAt(double x, double z, SurfaceType t, double h, double ny, double path)
+    {
+        double d = GrassDensity(t, h, ny, path);
+        if (d <= 0) return 0;
+        d *= 1 - RoadPathAt(x, z);
+        return d;
+    }
+
+    /// <summary>0..1 river/lake wetness at a point (see RiverCarve.WetAt): feathers grass out approaching the
+    /// water's edge instead of letting it plant right up to (or past) the visible waterline. The height-based
+    /// Water classification only trips at h&lt;=0.3, but the wet band painted on the banks extends several
+    /// metres beyond that, so grass needs its own check here or it reads as growing in the river/lake.</summary>
+    public static double WetSuppression(double x, double z)
+    {
+        double wet = RiverCarve.WetAt(x, z);
+        return 1.0 - Sm(0.15, 0.55, wet);   // fully clear by wet=0.15, fully suppressed by wet=0.55
     }
 
     public static bool GrassAllowed(double x, double z) { double h = H(x, z), ny = NV(x, z).y, p = PathAt(x, z); return GrassDensity(Classify(x, z, h, ny, p), h, ny, p) > 0; }

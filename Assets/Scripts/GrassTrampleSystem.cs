@@ -69,18 +69,22 @@ public class GrassTrampleSystem : MonoBehaviour
         var cam = Camera.main;
         if (cam != null) _cameraTransform = cam.transform;
 
-        var fps = FindFirstObjectByType<IslandFPSController>();
-        if (fps != null) _playerTransform = fps.transform;
+        var tpc = FindFirstObjectByType<IslandThirdPersonController>();
+        if (tpc != null) _playerTransform = tpc.transform;
+        else { var fps = FindFirstObjectByType<IslandFPSController>(); if (fps != null) _playerTransform = fps.transform; }
 
         Shader.SetGlobalTexture(IDTrampleTex, _trampleRT);
     }
+
+    // Third-person camera orbits the player, so centre the window on the player (it must not swing with the camera).
+    Vector3 WindowCenter => _playerTransform != null ? _playerTransform.position : _cameraTransform.position;
 
     void Update()
     {
         if (_cameraTransform == null) return;
 
         // Expose current window bounds to all grass shaders
-        Vector3 camPos = _cameraTransform.position;
+        Vector3 camPos = WindowCenter;
         float   half   = windowSize * 0.5f;
         Shader.SetGlobalVector(IDTrampleOrigin, new Vector4(camPos.x - half, camPos.z - half, 0f, 0f));
         Shader.SetGlobalFloat(IDTrampleSize, windowSize);
@@ -107,7 +111,7 @@ public class GrassTrampleSystem : MonoBehaviour
         if (_stampMat == null || _trampleRT == null || _cameraTransform == null) return;
 
         float   half  = windowSize * 0.5f;
-        Vector3 cam   = _cameraTransform.position;
+        Vector3 cam   = WindowCenter;
         float   u     = (worldPos.x - (cam.x - half)) / windowSize;
         float   v     = (worldPos.z - (cam.z - half)) / windowSize;
 

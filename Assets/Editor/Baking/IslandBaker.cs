@@ -72,24 +72,11 @@ public class IslandBaker : EditorWindow
             AssetDatabase.CreateAsset(pathMapTex, pathMapPath);
         }
 
-        // Save Terrain Color Texture (baked from vertex colors)
-        string colorPath = $"{savePath}/IslandTerrainColor.asset";
-        var grassSystem = FindFirstObjectByType<IslandStylizedGrass>();
-        Texture2D colorTex = null;
-        if (grassSystem != null)
-        {
-            colorTex = BakeTerrainColorTexture(mesh, grassSystem.colorTexSize);
-            var existingColor = AssetDatabase.LoadAssetAtPath<Texture2D>(colorPath);
-            if (existingColor != null)
-            {
-                EditorUtility.CopySerialized(colorTex, existingColor);
-                AssetDatabase.SaveAssets();
-            }
-            else
-            {
-                AssetDatabase.CreateAsset(colorTex, colorPath);
-            }
-        }
+        // Terrain Color Texture bake retired: IslandStylizedGrass no longer exposes colorTexSize/vertex-color
+        // bake path since the Ghibli package grass rewrite (uses package meshes/materials, not a baked color tex).
+        // Baked grass loading is unsupported by the new renderer anyway (FORCE_RUNTIME_GENERATION=true).
+        // See Assets/Docs/GHIBLI_NATURE_INTEGRATION.md.
+
 
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
@@ -219,10 +206,14 @@ public class IslandBaker : EditorWindow
             var bnds = (List<Bounds>)bndsField.GetValue(v);
             var mesh = (Mesh)meshField.GetValue(v);
             var leafMatRuntime = (Material)leafMatField.GetValue(v);
-            string matPath = $"{savePath}/TreeLeafMat_{scatterData.variants.Count}.mat";
-            var leafMat = AssetDatabase.LoadAssetAtPath<Material>(matPath);
-            if (leafMat == null) { leafMat = new Material(leafMatRuntime); AssetDatabase.CreateAsset(leafMat, matPath); }
-            else { EditorUtility.CopySerialized(leafMatRuntime, leafMat); EditorUtility.SetDirty(leafMat); }
+            Material leafMat = null;
+            if (leafMatRuntime != null)
+            {
+                string matPath = $"{savePath}/TreeLeafMat_{scatterData.variants.Count}.mat";
+                leafMat = AssetDatabase.LoadAssetAtPath<Material>(matPath);
+                if (leafMat == null) { leafMat = new Material(leafMatRuntime); AssetDatabase.CreateAsset(leafMat, matPath); }
+                else { EditorUtility.CopySerialized(leafMatRuntime, leafMat); EditorUtility.SetDirty(leafMat); }
+            }
 
             // Save tree meshes
             string meshName = $"TreeMesh_{scatterData.variants.Count}";

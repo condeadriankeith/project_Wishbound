@@ -15,6 +15,13 @@ public class IslandStylizedTrees : MonoBehaviour
     public float minScale = 0.9f, maxScale = 1.6f;
     public bool addBushes = true, addColliders = true;
 
+    [Header("Ghibli package assets")]
+    [Tooltip("Use meshes/shaders from '3D set of stylized nature - GHIBLI style' via Resources/GhibliNatureSet. Falls back to the old procedural trees if the set is missing.")]
+    public bool usePackageAssets = true;
+    GhibliNatureSet natureSet;
+    bool pkgMode;
+    List<GhibliBatch> pkgBatches;
+
     [Header("Distance LOD")]
     [Tooltip("Maximum distance at which trees are rendered. Beyond this, chunks are culled.")]
     public float maxRenderDistance = 300f;
@@ -46,6 +53,15 @@ public class IslandStylizedTrees : MonoBehaviour
             var ib = IslandBuilder.Instance;
             if (ib != null && ib.PathMap != null) { mf = ib.GetComponent<MeshFilter>(); if (mf != null && mf.sharedMesh != null && mf.sharedMesh.vertexCount > 0) break; }
             yield return null;
+        }
+        natureSet = usePackageAssets ? GhibliNatureSet.Load() : null;
+        if (natureSet != null && natureSet.trees.Count > 0 && natureSet.shrubs.Count > 0)
+        {
+            // Package mode: same deterministic scatter (positions / yaw / scale untouched), only mesh + materials + size multiplier change.
+            pkgMode = true;
+            vars = new[] { new Variant(), new Variant(), new Variant(), new Variant() };   // matrix collectors only
+            Scatter(mf.sharedMesh);
+            yield break;
         }
         var toon = Resources.Load<Shader>("IslandToonFoliage");
         var ghibli = Resources.Load<Shader>("IslandGhibliFoliage");
@@ -80,7 +96,10 @@ public class IslandStylizedTrees : MonoBehaviour
         if (h < minHeight || h > maxHeight) return false;
         // Ask the shared Surface classifier what the ground IS (no more guessing from vertex colour):
         // trees only grow on living ground (Grass / Field), never on sand, dirt, paths, scree or cliff walls.
-        double ny = NV(x, z).y;
+        // Use the RENDERED mesh normal (NVm), not the analytic NV: cliff smoothing can make the rendered
+        // surface much steeper here than the analytic field, which was letting trees/bushes pass this check
+        // and then get placed (at the Hm height) on what is visibly a steep cliff face.
+        double ny = NVm(x, z).y;
         if (ny < minSlopeY) return false;
         var st = Surface.Classify(x, z, h, ny, Surface.PathAt(x, z));
         return st == SurfaceType.Grass || st == SurfaceType.Field;
@@ -162,6 +181,8 @@ public class IslandStylizedTrees : MonoBehaviour
             }
         }
 
+        if (pkgMode) { BuildPackageBatches(trees, bushes); return; }
+
         foreach (var v in vars)
         {
             var cellMap = new Dictionary<long, List<Matrix4x4>>();
@@ -185,6 +206,56 @@ public class IslandStylizedTrees : MonoBehaviour
                 }
         }
         Debug.Log("[IslandStylizedTrees] " + trees + " trees, " + bushes + " bushes planted.");
+    }
+
+    // ---------------------------------------------------------------------
+    //  Ghibli package mode
+    //  vars[0] round1 / vars[1] round2 / vars[2] pine / vars[3] bush keep their ORIGINAL matrices.
+    //  Each matrix is re-assigned (deterministically, by position hash) to a package piece from that slot's pool
+    //  and uniformly scaled by  OldTop / pieceTop  so the final height equals the old tree's height.
+    // ---------------------------------------------------------------------
+    // measured top of the old procedural meshes above their origin (m): round1, round2, pine, bush
+    static readonly float[] OldTop = { 13.31f, 16.32f, 18.60f, 1.65f };
+    static readonly string[][] Pool =
+    {
+        new[] { "Tree_04", "Tree_04", "Tree_01", "Tree_01", "Tree_03" },   // round1: wide round canopy
+        new[] { "Tree_02", "Tree_02", "Tree_01", "Tree_03" },              // round2: taller
+        new[] { "Tree_05", "Tree_05", "Tree_02" },                          // pine slot (highland): narrow
+        new[] { "Shrubs_01", "Shrubs_02", "Shrubs_03" },                    // bushes
+    };
+    const string HeroTree = "Big Tree";   // pink blossom tree: ~1.5% of the round1 slot
+
+    void BuildPackageBatches(int trees, int bushes)
+    {
+        var lists = new Dictionary<string, List<Matrix4x4>>();
+        var maxF = new Dictionary<string, float>();
+        var piece = new Dictionary<string, GhibliPiece>();
+        for (int vi = 0; vi < vars.Length; vi++)
+        {
+            var src = vi == 3 ? natureSet.shrubs : natureSet.trees;
+            foreach (var m in vars[vi].m)
+            {
+                Vector4 p = m.GetColumn(3);
+                uint h = (uint)(((int)(p.x * 10f)) * 73856093 ^ ((int)(p.z * 10f)) * 19349663);
+                h ^= h >> 13; h *= 0x5bd1e995; h ^= h >> 15;
+                string nm = (vi == 0 && h % 1000 < 15 && GhibliNatureSet.Find(src, HeroTree) != null) ? HeroTree : Pool[vi][(int)((h >> 8) % (uint)Pool[vi].Length)];
+                GhibliPiece pc;
+                if (!piece.TryGetValue(nm, out pc)) { pc = GhibliNatureSet.Find(src, nm); if (pc == null) continue; piece[nm] = pc; lists[nm] = new List<Matrix4x4>(); maxF[nm] = 0f; }
+                float f = OldTop[vi] / Mathf.Max(0.1f, pc.maxY);
+                lists[nm].Add(m * Matrix4x4.Scale(Vector3.one * f));
+                if (f > maxF[nm]) maxF[nm] = f;
+            }
+        }
+        pkgBatches = new List<GhibliBatch>();
+        foreach (var kv in lists)
+        {
+            var pc = piece[kv.Key];
+            float k = maxF[kv.Key] * 1.7f;   // 1.7 = max per-instance scale variation (1.6 trees / 1.05*1.15 bushes)
+            var b = new GhibliBatch(pc.mesh, pc.materials) { shadows = UnityEngine.Rendering.ShadowCastingMode.On };
+            b.Build(kv.Value, 80f, new Vector3(pc.MaxXZ * k, pc.maxY * k, pc.MaxXZ * k));
+            pkgBatches.Add(b);
+        }
+        Debug.Log("[IslandStylizedTrees] Ghibli package mode: " + trees + " trees, " + bushes + " shrubs in " + pkgBatches.Count + " batches.");
     }
 
     public void LoadBakedData(TreeScatterData data)
@@ -241,6 +312,11 @@ public class IslandStylizedTrees : MonoBehaviour
         var cam = Camera.main; if (cam == null) return;
         GeometryUtility.CalculateFrustumPlanes(cam, planes);
         Vector3 cp = cam.transform.position;
+        if (pkgBatches != null)
+        {
+            foreach (var pb in pkgBatches) pb.Draw(cp, planes, maxRenderDistance, 1e9f, 100f);   // keep <100 m chunks so shadows never pop
+            return;
+        }
         float maxDist2 = maxRenderDistance * maxRenderDistance;
         float fadeStart2 = (maxRenderDistance - fadeDistance) * (maxRenderDistance - fadeDistance);
         foreach (var v in vars)

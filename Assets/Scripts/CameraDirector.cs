@@ -20,7 +20,9 @@ void Awake()
         if (!cam) cam = Camera.main;
         if (!cam) cam = GetComponent<Camera>();
         // If the camera lives under the FPS player, don't orbit/fly/tour it away from the player's eyes.
-        attachedToPlayer = cam && cam.GetComponentInParent<IslandFPSController>() != null;
+        attachedToPlayer = cam && (cam.GetComponentInParent<IslandFPSController>() != null
+            || cam.GetComponentInParent<IslandThirdPersonController>() != null
+            || cam.GetComponent<Unity.Cinemachine.CinemachineBrain>() != null);   // Cinemachine owns the camera
         if (attachedToPlayer) enabled = false;
     }
 

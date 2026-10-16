@@ -4,8 +4,9 @@ using static TerrainMath;
 /// <summary>F3 cycles overlay: off / height / slope bands / distance-to-sea. Top = north (+Unity Z).</summary>
 public class WorldFieldDebug : MonoBehaviour
 {
-    public int mode = 2;            // 0 off, 1 height, 2 slope bands, 3 sea distance, 4 surface, 5 roads
+    public int mode = 0;            // 0 off, 1 height, 2 slope bands, 3 sea distance, 4 surface, 5 roads
     public float size = 380f;
+    public bool debugHotkeyEnabled = false;   // F3 overlay is off by default (no UI in the game view)
     Texture2D[] tex = new Texture2D[7];
     GUIStyle st;
 
@@ -82,7 +83,7 @@ public class WorldFieldDebug : MonoBehaviour
     void OnDrawGizmos() { if (mode == 6) ZoneMap.DrawGizmos(); }
     void Update()
     {
-        try { if (Input.GetKeyDown(KeyCode.F3)) { mode = (mode + 1) % 7; tex = new Texture2D[7]; } } catch { }
+        if (debugHotkeyEnabled) { try { if (Input.GetKeyDown(KeyCode.F3)) { mode = (mode + 1) % 7; tex = new Texture2D[7]; } } catch { } }
     }
 
     void OnGUI()

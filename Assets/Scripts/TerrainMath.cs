@@ -169,4 +169,14 @@ public static class TerrainMath
             (float)(-(H(x + e, z) - H(x - e, z)) / (2 * e)), 1f,
             (float)(-(H(x, z + e) - H(x, z - e)) / (2 * e))).normalized;
     }
+    /// <summary>Normal of the RENDERED mesh (via Hm), not the analytic field. Cliff smoothing can make Hm
+    /// diverge sharply from H/NV near carved relief, so anything whose slope check must agree with what the
+    /// player actually sees standing on (tree/bush/prop placement) should gate on this, not NV.</summary>
+    public static Vector3 NVm(double x, double z)
+    {
+        const double e = 1.4;
+        return new Vector3(
+            -(Hm(x + e, z) - Hm(x - e, z)) / (2f * (float)e), 1f,
+            -(Hm(x, z + e) - Hm(x, z - e)) / (2f * (float)e)).normalized;
+    }
 }
