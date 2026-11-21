@@ -12,6 +12,11 @@ using UnityEngine;
 public class IslandCameraFX : MonoBehaviour
 {
     public bool tiltShift = true;
+    /// <summary>Blur strength goal (controller sets 0.5 / 1 / 1.8 for camera modes 1 / 2 / 3); eased every frame.</summary>
+    public static float TiltGoal = 1f;
+    static float tiltNow = 1f;
+    static readonly int StrengthId = Shader.PropertyToID("_IslandTiltStrength");
+
 
     [Header("Fade in from black")]
     public float fadeDuration = 3f;
@@ -23,10 +28,11 @@ public class IslandCameraFX : MonoBehaviour
     static readonly int FadeId = Shader.PropertyToID("_IslandFade");
     static readonly int TiltId = Shader.PropertyToID("_IslandTiltShiftEnabled");
 
-    void Awake()
+void Awake()
     {
         Shader.SetGlobalFloat(FadeId, 1f);                       // black from the very first frame
         Shader.SetGlobalFloat(TiltId, tiltShift ? 1f : 0f);
+        tiltNow = TiltGoal = 1f; Shader.SetGlobalFloat(StrengthId, 1f);
     }
 
     IEnumerator Start()
@@ -57,14 +63,20 @@ public class IslandCameraFX : MonoBehaviour
         Shader.SetGlobalFloat(FadeId, 0f);
     }
 
-    void Update() { Shader.SetGlobalFloat(TiltId, tiltShift ? 1f : 0f); }
+    void Update()
+    {
+        Shader.SetGlobalFloat(TiltId, tiltShift ? 1f : 0f);
+        tiltNow = Mathf.Lerp(tiltNow, TiltGoal, 1f - Mathf.Exp(-3f * Time.unscaledDeltaTime));
+        Shader.SetGlobalFloat(StrengthId, tiltNow);
+    }
 
     void OnDisable() { Reset(); }
     void OnDestroy() { Reset(); }
 
-    static void Reset()
+static void Reset()
     {
         Shader.SetGlobalFloat(FadeId, 0f);
         Shader.SetGlobalFloat(TiltId, 0f);
+        Shader.SetGlobalFloat(StrengthId, 1f);
     }
 }

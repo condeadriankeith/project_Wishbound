@@ -31,6 +31,7 @@ Shader "Hidden/Island/TiltShift"
             #define SAMPLE_COUNT 80
 
             float _IslandTiltShiftEnabled;   // global, set by IslandCameraFX
+            float _IslandTiltStrength;       // global 0..2, eased per camera mode by IslandCameraFX
             float _FocusY, _BandHalfHeight, _Falloff, _MaxBlurRadius, _Angle, _Saturation, _BokehBoost;
 
             // Circle of confusion in pixels for a given screen position: zero inside the sharp band, ramping to max.
@@ -40,7 +41,7 @@ Shader "Hidden/Island/TiltShift"
                 float d = dot(q, n) - (_FocusY - 0.5);
                 float t = saturate((abs(d) - _BandHalfHeight) / max(_Falloff, 1e-4));
                 t = t * t * (3.0 - 2.0 * t);
-                return t * _MaxBlurRadius * (_ScreenParams.y / 1080.0);
+                return t * _MaxBlurRadius * _IslandTiltStrength * (_ScreenParams.y / 1080.0);
             }
 
             half4 Frag(Varyings input) : SV_Target

@@ -117,6 +117,7 @@ public class IslandStylizedFlowers : MonoBehaviour
             float maxDrop = Mathf.Max(Mathf.Max(Mathf.Abs(h - hx1), Mathf.Abs(h - hx2)), Mathf.Max(Mathf.Abs(h - hz1), Mathf.Abs(h - hz2)));
             float maxDropAllowed = m * 0.625f;
             if (maxDrop > maxDropAllowed) continue;
+            if (Surface.NearCrater(x, z)) continue;   // crater / lip / furrow: ground is displaced
             double pth = Surface.PathAt(x, z);
             var st = Surface.Classify(x, z, h, normalY, pth);
             if (st != SurfaceType.Grass && st != SurfaceType.Field) continue;   // flowers only in meadow/field ground

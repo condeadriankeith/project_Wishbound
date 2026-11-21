@@ -93,6 +93,15 @@ var idx = new int[N * N * 6];
 
         mesh.colors = BaseColors = PaintVertices(pos, h, nrm);
         mesh.RecalculateBounds();
+        // Sink the island under the comet crater's high-res sand patch (BeachCometCrater lays it on top).
+        // Only the mesh moves: HGrid / Hm / BaseY keep the original ground, so props, grass and the patch itself are unaffected.
+        if (FindFirstObjectByType<BeachCometCrater>() != null)
+        {
+            var sunk = mesh.vertices; bool any = false;
+            for (int j = 0; j < V; j++) for (int i = 0; i < V; i++)
+                if (BeachCometCrater.InsidePatch(-E + i * S, -E + j * S)) { sunk[j * V + i].y -= 6f; any = true; }
+            if (any) { mesh.vertices = sunk; mesh.RecalculateBounds(); }   // normals deliberately NOT recalculated (keeps the painted colours/shading at the rim)
+        }
         var mf = GetComponent<MeshFilter>();
         if (mf) mf.sharedMesh = mesh;
         var mc = GetComponent<MeshCollider>();

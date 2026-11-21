@@ -396,10 +396,11 @@ public class WishboundIntro : MonoBehaviour
             { float bk = Mathf.SmoothStep(0, 1, t / 2.5f); barTop.rectTransform.anchorMin = new Vector2(0, Mathf.Lerp(1f, .9f, bk)); barBottom.rectTransform.anchorMax = new Vector2(1, Mathf.Lerp(0f, .1f, bk)); }
 
             fade.color = new Color(0, 0, 0, Mathf.Max(1 - Mathf.SmoothStep(0, 1, t / 2.2f), Mathf.SmoothStep(0, 1, Mathf.InverseLerp(shot1Duration - .9f, shot1Duration, t))));
-            float sunset = Ease(Mathf.InverseLerp(.20f, .86f, k));
+            float sunset = Ease(Mathf.InverseLerp(.05f, .95f, k));   // starts almost at once and runs the whole shot so the change is unmistakable
             if (dayNight) dayNight.scriptedHour = Mathf.Lerp(shot1StartHour, shot1EndHour, sunset);
-            grade.colorFilter.value = Color.Lerp(new Color(.94f, .98f, 1f), new Color(1f, .72f, .48f), sunset);
-            grade.postExposure.value = Mathf.Lerp(.35f, -.35f, sunset);
+            grade.colorFilter.value = Color.Lerp(new Color(.88f, .97f, 1f), new Color(1f, .58f, .34f), sunset);
+            grade.saturation.value = Mathf.Lerp(-4f, 22f, sunset); grade.contrast.value = Mathf.Lerp(8f, 20f, sunset);
+            grade.postExposure.value = Mathf.Lerp(.55f, -.55f, sunset);
             aWind.volume = Mathf.Clamp01(t / 1.5f) * .8f;
             // breathing, resting-in-the-grass drift and a slow push in toward the hero blades
             // static shot: no drift, no push-in, no pan
@@ -411,6 +412,7 @@ public class WishboundIntro : MonoBehaviour
             yield return null;
         }
         if (!skipRequested) fade.color = Color.black;
+        grade.saturation.value = 0f; grade.contrast.value = 12f;
         Destroy(grass); Destroy(pollen.gameObject); Destroy(glints.gameObject);
     }
 
@@ -749,7 +751,7 @@ IEnumerator Shot3()
                 shard.light.intensity = .6f * (1f - f); shard.t.localScale = Vector3.one * (1f - f);
                 if (f >= 1f) { shard.trail.emitting = false; shard = null; }
             }
-            shake = Noise3(.5f * (split ? Mathf.Exp(-since * 3.5f) : 0f) + .35f * k * k * k, 12f) + Noise3(.08f, .7f);
+            shake = (Noise3(.5f * (split ? Mathf.Exp(-since * 3.5f) : 0f) + .35f * k * k * k, 12f) + Noise3(.08f, .7f)) * (1f - Mathf.SmoothStep(0f, 1f, breathK * 1.4f));   // dead still while the title is up
 
             // camera: chase beside/behind the comet, then ease to a fixed vantage on the beach, always aimed at the comet
             Vector3 sideNow = Vector3.Cross(Vector3.up, dirS).normalized;
@@ -1154,8 +1156,8 @@ IEnumerator CoreImpact()
         {
             float k = Mathf.SmoothStep(0, 1, t / settle);
             if (!born && t > (crater ? crater.formSeconds + .15f : .5f)) { born = true; BirthStar(c); }
-            shake = Noise3(2.5f * Mathf.Exp(-t * 1.8f), 12f) + Noise3(0.8f * Mathf.Exp(-t * 3f), 25f); // layered shake
-            float punch = 12f * Mathf.Exp(-t * 5f); // stronger FOV punch
+            shake = Noise3(.9f * Mathf.Exp(-t * 2.2f), 12f) + Noise3(.3f * Mathf.Exp(-t * 3.5f), 25f); // restrained shake, gone within ~1.5 s
+            float punch = 6f * Mathf.Exp(-t * 5f); // FOV punch
 
             // Camera push-in on impact then pull to title
             Pose(Vector3.Lerp(impactCamera, titleCamera, Ease(k)),
@@ -1193,13 +1195,13 @@ IEnumerator CoreImpact()
         try
         {
             // Frame 0: Near-total freeze
-            Time.timeScale = 0.01f;
-            yield return new WaitForSecondsRealtime(0.15f);
+            Time.timeScale = 0.04f;
+            yield return new WaitForSecondsRealtime(0.12f);
 
             // Frames 1-8: Extreme slow-mo with gradual restoration
             for (float r = 0; r < 0.8f; r += Time.unscaledDeltaTime)
             {
-                Time.timeScale = Mathf.Lerp(0.02f, 0.15f, Mathf.SmoothStep(0f, 1f, r / 0.8f));
+                Time.timeScale = Mathf.Lerp(0.06f, 0.25f, Mathf.SmoothStep(0f, 1f, r / 0.8f));
                 yield return null;
             }
 
@@ -1229,7 +1231,7 @@ IEnumerator CoreImpact()
             if (bloomFx != null)
             {
                 float k = Mathf.SmoothStep(0f, 1f, r / 5f);
-                bloomFx.intensity.value = Mathf.Lerp(15f, 1.8f, k); // massive initial blowout
+                bloomFx.intensity.value = Mathf.Lerp(8f, 1.8f, k); // strong but readable blowout
                 bloomFx.threshold.value = Mathf.Lerp(0.1f, 1f, k);
                 bloomFx.scatter.value = Mathf.Lerp(1f, 0.65f, k);
                 // Color shift: warm gold to white
@@ -1248,7 +1250,7 @@ IEnumerator CoreImpact()
         for (float r = 0; r < 2.5f; r += Time.unscaledDeltaTime)
         {
             float k = Mathf.SmoothStep(0f, 1f, r / 2.5f);
-            chromaFx.intensity.value = Mathf.Lerp(1.2f, original, k); // strong separation
+            chromaFx.intensity.value = Mathf.Lerp(.6f, original, k);
             yield return null;
         }
         chromaFx.intensity.value = original;
@@ -1262,7 +1264,7 @@ IEnumerator CoreImpact()
         for (float r = 0; r < 2f; r += Time.unscaledDeltaTime)
         {
             float k = Mathf.SmoothStep(0f, 1f, r / 2f);
-            vignette.intensity.value = Mathf.Lerp(0.85f, original, k);
+            vignette.intensity.value = Mathf.Lerp(0.6f, original, k);
             vignette.smoothness.value = Mathf.Lerp(0.3f, original, k);
             yield return null;
         }
@@ -1279,7 +1281,7 @@ IEnumerator CoreImpact()
             float amp = Mathf.Lerp(1f, 0f, k);
 
             // Rotational shake (dutch angle)
-            float targetRot = (Mathf.PerlinNoise(Time.unscaledTime * 30f, 0.5f) - 0.5f) * 2.5f * amp;
+            float targetRot = (Mathf.PerlinNoise(Time.unscaledTime * 30f, 0.5f) - 0.5f) * 1.0f * amp;
             rotShake = Mathf.SmoothDamp(rotShake, targetRot, ref rotShakeVel, 0.05f, Mathf.Infinity, Time.unscaledDeltaTime);
             introCam.transform.rotation *= Quaternion.Euler(0, 0, rotShake);
 

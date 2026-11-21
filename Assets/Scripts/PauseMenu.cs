@@ -8,7 +8,7 @@ using UnityEngine.UI;
 /// <summary>
 /// General in-game pause overlay (ESC). Shows the same settings controls as the title screen
 /// (volume, look speed, fullscreen) plus RESUME and QUIT. Pauses game time while open and
-/// restores it cleanly on resume; QUIT hands off to WishboundIntro.ReturnToTitle().
+/// restores it cleanly on resume; QUIT plays the shared WishboundFarewell sequence and exits the game.
 /// Built as its own canvas so it never depends on WishboundIntro's (which is torn down after the intro).
 /// </summary>
 public sealed class PauseMenu : MonoBehaviour
@@ -123,18 +123,12 @@ public sealed class PauseMenu : MonoBehaviour
     void RequestQuit()
     {
         if (busy) return;
-        busy = true;
-        StartCoroutine(QuitRoutine());
-    }
-
-    IEnumerator QuitRoutine()
-    {
-        yield return Fade(1f, 0f, null);
-        Time.timeScale = priorTimeScale;
-        open = false; busy = false;
-        var intro = WishboundIntro.Instance;
-        if (intro) intro.StartCoroutine(intro.ReturnToTitle());
-        else { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
+        busy = true;   // input is dead from here: Update() returns while busy and the farewell canvas swallows clicks
+        selected = -1;
+        // the wisp leaves from the QUIT button, then the screen fades out and the game really exits
+        Vector2 screen = RectTransformUtility.WorldToScreenPoint(null, items[items.Count - 1].rect.position);
+        Cursor.lockState = CursorLockMode.None; Cursor.visible = false;
+        WishboundFarewell.Play(screen);
     }
 
     IEnumerator Fade(float from, float to, Action onDone)

@@ -161,6 +161,17 @@ public class BeachCometCrater : MonoBehaviour
     // under the disturbed area (IslandBuilder) and this fine patch is laid on top, blending back into the
     // island's own (bilinear) surface where the disturbance fades out so there is no seam.
     const float PatchStep = .5f, PatchUMin = -36, PatchUMax = 32, PatchVHalf = 25;
+    // Tiny lift so the detail patch never z-fights the (otherwise coplanar) island surface at its edges.
+    const float PatchLift = .02f;
+    /// <summary>True when the island vertex at source-space (sx,sz) lies at least one cell + diagonal inside the detail patch,
+    /// so every triangle touching it is completely covered by the patch. IslandBuilder sinks those vertices; without that
+    /// the island mesh sits ABOVE the crater bowl and buries it.</summary>
+    public static bool InsidePatch(double sx, double sz)
+    {
+        CometImpact.Local(sx, sz, out double u, out double v);
+        double d = Math.Min(Math.Min(u - PatchUMin, PatchUMax - u), PatchVHalf - Math.Abs(v));
+        return d >= TerrainMath.S * 1.5;
+    }
 
     static float GridBilinear(float[] g, double sx, double sz)
     {
@@ -214,7 +225,7 @@ public class BeachCometCrater : MonoBehaviour
                 var w = TerrainMath.U(sx, 0, sz);
                 int k = b * nu + a;
                 patchBase[k] = BaseY(w.x, w.z); patchDelta[k] = CraterDelta(w.x, w.z);
-                w.y = patchBase[k] + patchDelta[k] * Amount; verts[k] = w;
+                w.y = patchBase[k] + patchDelta[k] * Amount + PatchLift; verts[k] = w;
                 Color baseC = baseCols != null ? ColorBilinear(baseCols, sx, sz) : new Color(.94f, .9f, .8f); baseC.a = 1;
                 var c = CometImpact.Paint(sx, sz, baseC); c.a = 1;
                 patchCalm[k] = baseC; patchScarred[k] = c; cols[k] = Color.Lerp(baseC, c, Mathf.Clamp01(Amount));
@@ -245,7 +256,7 @@ public class BeachCometCrater : MonoBehaviour
         if (patchMesh == null) return;
         for (int k = 0; k < patchVerts.Length; k++)
         {
-            patchVerts[k].y = patchBase[k] + patchDelta[k] * amount;
+            patchVerts[k].y = patchBase[k] + patchDelta[k] * amount + PatchLift;
             patchCols[k] = Color.Lerp(patchCalm[k], patchScarred[k], scar);
         }
         patchMesh.vertices = patchVerts; patchMesh.colors = patchCols; patchMesh.RecalculateNormals(); patchMesh.RecalculateBounds();
@@ -407,7 +418,7 @@ public class BeachCometCrater : MonoBehaviour
         float t = 0;
         while (t < formSeconds)
         {
-            t += Time.deltaTime;
+            t += Time.unscaledDeltaTime;
             float k = Mathf.Clamp01(t / formSeconds);
             float a = 1 - Mathf.Pow(1 - k, 3); a += Mathf.Sin(k * Mathf.PI) * .18f;
             Amount = a; ApplyAmount(a, Mathf.Clamp01(k * 1.6f), false);
@@ -416,7 +427,7 @@ public class BeachCometCrater : MonoBehaviour
             yield return null;
         }
         Amount = 1; ApplyAmount(1, 1, true); if (!propsShown) SetPropsVisible(true);
-        for (float f = 0; f < 3.5f; f += Time.deltaTime) { flash.intensity = Mathf.Lerp(14, 2.2f, f / 3.5f); flash.range = Mathf.Lerp(140, 14, f / 3.5f); yield return null; }
+        for (float f = 0; f < 3.5f; f += Time.unscaledDeltaTime) { flash.intensity = Mathf.Lerp(14, 2.2f, f / 3.5f); flash.range = Mathf.Lerp(140, 14, f / 3.5f); yield return null; }
         flash.color = new Color(.5f, .85f, 1f); flash.range = 12; flash.intensity = 1.6f;   // the cooling glow that remains
         Destroy(burst.gameObject, 8); Destroy(debris.gameObject, 8); if (ring) Destroy(ring, 3);
     }

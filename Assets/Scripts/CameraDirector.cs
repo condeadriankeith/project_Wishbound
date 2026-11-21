@@ -80,7 +80,7 @@ public void SetOrbitFrom(Vector3 pos, Vector3 tgt)
         if (Input.GetMouseButton(0) && !overUI)
         { vel += new Vector2(Input.GetAxis("Mouse X"), Input.GetAxis("Mouse Y")) * 0.05f; autoRotate = false; }
         if (autoRotate) vel.x += 0.0035f * 0.35f;
-        zoomVel += -Input.mouseScrollDelta.y * 0.08f * dist * 0.1f;
+        // scroll-wheel zoom removed by design
         yaw -= vel.x * (1f - 0.06f); elev = Mathf.Clamp(elev + vel.y * (1f - 0.06f), 0.05f, 1.5f);
         dist = Mathf.Clamp(dist + zoomVel, 6f, 1800f);
         vel *= 0.94f; zoomVel *= 0.88f;
@@ -99,7 +99,7 @@ public void SetOrbitFrom(Vector3 pos, Vector3 tgt)
     {
         if (Input.GetKeyDown(KeyCode.Q)) pTyaw += 0.5f;
         if (Input.GetKeyDown(KeyCode.E)) pTyaw -= 0.5f;
-        pDist = Mathf.Clamp(pDist - Input.mouseScrollDelta.y * 4f, 30f, 160f);
+        // scroll-wheel zoom removed by design
         pYaw += (pTyaw - pYaw) * (1 - Mathf.Exp(-dt * 8f));
         if (!player) return;
         float cp = Mathf.Cos(0.82f), k = 1 - Mathf.Exp(-dt * 4f);

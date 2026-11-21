@@ -111,6 +111,10 @@ public static class Surface
         double d = GrassDensity(t, h, ny, path);
         if (d <= 0) return 0;
         d *= 1 - RoadPathAt(x, z);
+        // keep grass out of the comet crater, its heaped lip / ejecta apron and the skid furrow (the ground there is displaced,
+        // so clumps planted at the undisturbed height would float over the bowl or be buried in the lip)
+        d *= 1 - Sm(0.02, 0.3, CometImpact.Disturbance(x, z));
+        d *= 1 - Sm(0.02, 0.1, System.Math.Abs(CometImpact.Apply(x, z, 0)));
         return d;
     }
 
@@ -122,6 +126,13 @@ public static class Surface
     {
         double wet = RiverCarve.WetAt(x, z);
         return 1.0 - Sm(0.15, 0.55, wet);   // fully clear by wet=0.15, fully suppressed by wet=0.55
+    }
+
+    /// <summary>True on the comet crater, its heaped lip / ejecta apron or the skid furrow. Flowers, trees and bushes reject these points
+    /// so nothing is planted at the undisturbed height over displaced ground.</summary>
+    public static bool NearCrater(double x, double z)
+    {
+        return CometImpact.Disturbance(x, z) > 0.02 || System.Math.Abs(CometImpact.Apply(x, z, 0)) > 0.05;
     }
 
     public static bool GrassAllowed(double x, double z) { double h = H(x, z), ny = NV(x, z).y, p = PathAt(x, z); return GrassDensity(Classify(x, z, h, ny, p), h, ny, p) > 0; }

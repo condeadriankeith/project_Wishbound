@@ -109,6 +109,7 @@ public class GuideWisp : MonoBehaviour
 
     // ---------------------------------------------------------------- update
     public bool MenuMode { get; set; }
+    float VisT => MenuMode ? Time.unscaledTime : Time.time;   // menu wisp keeps living while the comet hold freezes game time
     public bool VisualReady => wisp != null;
     public void SetMenuPose(Vector3 at, float opacity)
     {
@@ -266,15 +267,15 @@ public class GuideWisp : MonoBehaviour
     {
         alpha = Mathf.MoveTowards(alpha, to, dt * 1.5f);
         if (!wisp || !wisp.gameObject.activeSelf) return;
-        float flick = .92f + .08f * (Mathf.PerlinNoise(Time.time * 7f, phase) * 2f - 1f);
+        float flick = .92f + .08f * (Mathf.PerlinNoise(VisT * 7f, phase) * 2f - 1f);
         glow.intensity = alpha * 2.4f * flick; glow.range = 4.2f + alpha * .8f;
-        float breathe = 1f + .1f * Mathf.Sin(Time.time * 3.1f + phase);
+        float breathe = 1f + .1f * Mathf.Sin(VisT * 3.1f + phase);
         for (int i = 0; i < layers.Count; i++)
         {
             var l = layers[i];
             if (l.orbit > 0)
             {
-                float a = Time.time * l.orbitSpeed + l.phase;
+                float a = VisT * l.orbitSpeed + l.phase;
                 l.t.localPosition = new Vector3(Mathf.Cos(a) * l.orbit, Mathf.Sin(a * 1.3f + l.tilt) * l.orbit * .5f, Mathf.Sin(a) * l.orbit);
             }
             l.t.localScale = Vector3.one * l.scale * (i < 3 ? breathe : 1f) * (.6f + .4f * alpha);

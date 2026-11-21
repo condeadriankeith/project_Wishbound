@@ -232,8 +232,7 @@ public class IslandThirdPersonController : MonoBehaviour
         if (!lockPitch) camPitch = Mathf.Clamp(camPitch + (invertY ? look.y : -look.y), minPitch, maxPitch);
         else camPitch = startPitch;
 
-        if (Mathf.Abs(scroll) > 0.01f)
-            distTarget = Mathf.Clamp(distTarget * (scroll > 0f ? 1f / zoomStep : zoomStep), minDistance, maxDistance);
+        // scroll-wheel zoom removed on purpose: camera distance only changes through the 1 / 2 / 3 camera modes
 
         if (isoRig && modePitchTimer > 0f)
         {
@@ -345,26 +344,28 @@ public class IslandThirdPersonController : MonoBehaviour
         return !Physics.SphereCast(origin, r, Vector3.up, out _, dist, ~0, QueryTriggerInteraction.Ignore);
     }
 
-    public void SetCameraMode(int mode)
+public void SetCameraMode(int mode)
     {
         CameraMode = mode;
+        IslandCameraFX.TiltGoal = mode switch { 1 => 0.5f, 2 => 1f, _ => 1.8f };   // eased in IslandCameraFX: subtle in 1st person, strongest in the high overview
         distTarget = mode switch
         {
             2 => thirdPersonDistance,
             1 => minDistance,
             _ => Mathf.Min(overviewDistance, maxDistance),
         };
-        if (isoRig && mode == 2)
+        if (isoRig)
         {
-            modePitchGoal = Mathf.Clamp(isoRig.basePitch, 18f, 40f);
-            modePitchTimer = 0.9f;
+            // every mode eases to its own pitch (1 = eye level, 2 = over-the-shoulder, 3 = high miniature overview)
+            modePitchGoal = mode switch { 1 => 0f, 2 => 22f, _ => 52f };
+            modePitchTimer = 1.4f;
             modePitchVel = 0f;
         }
     }
 
     public void PrepareThirdPerson()
     {
-        CameraMode = 2;
+        CameraMode = 2; IslandCameraFX.TiltGoal = 1f;
         distTarget = distCurrent = thirdPersonDistance;
         distVel = 0f;
         if (isoRig)

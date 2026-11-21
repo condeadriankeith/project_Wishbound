@@ -22,7 +22,7 @@ public sealed class WishboundTitleMenu : MonoBehaviour
     Material additive; Sprite moteSprite; Texture2D moteTexture;
     Vector2 cursor, rawPointer, previousPointer; int selected = -1;
     bool ready, busy, settingsOpen, pointerInitialized, keyboardSelection;
-    float menuAge; Coroutine quitRoutine;
+    float menuAge;
     public bool PlayRequested { get; private set; }
     public bool Ready => ready;
     public bool SettingsOpen => settingsOpen;
@@ -230,26 +230,16 @@ public sealed class WishboundTitleMenu : MonoBehaviour
         for(float t=0;t<.9f;t+=Time.unscaledDeltaTime){float a=1-Ease(t/.9f);logoGroup.alpha=a;foreach(var c in main)c.group.alpha=a;shade.color=new Color(0,0,0,.22f*a);DrawWisp(a);foreach(var m in motes)m.color=Color.clear;yield return null;}
         logoGroup.alpha=0;foreach(var c in main)c.group.alpha=0;shade.color=Color.clear;ReleaseCursor();
     }
-    public void SelectQuit(){if(!ready||busy||settingsOpen)return;busy=true;quitRoutine=StartCoroutine(Farewell());}
-    IEnumerator Farewell()
+    public void SelectQuit()
     {
-        Vector2 start=cursor,hover=new Vector2(100,70);
+        if(!ready||busy||settingsOpen)return;
+        busy=true;
         foreach(var m in motes)m.color=Color.clear;
-        for(float t=0;t<3.2f;t+=Time.unscaledDeltaTime)
-        {
-            float k=Ease(t/3.2f);cursor=Vector2.Lerp(start,hover,Ease(t/2.4f))+Vector2.up*Mathf.Sin(k*Mathf.PI)*60;
-            fade.color=new Color(0,0,0,k);logoGroup.alpha=1-k;foreach(var c in main)c.group.alpha=1-k;DrawWisp(1);yield return null;
-        }
-        fade.color=Color.black;yield return new WaitForSecondsRealtime(.6f);
-        Vector2 exit=new Vector2(root.rect.width*.65f,root.rect.height*.7f);
-        for(float t=0;t<1.4f;t+=Time.unscaledDeltaTime){float k=t/1.4f;cursor=Vector2.Lerp(hover,exit,k*k*k);DrawWisp(1);yield return null;}
-        yield return new WaitForSecondsRealtime(.5f);
-        PlayerPrefs.Save();
-        #if UNITY_EDITOR
-        UnityEditor.EditorApplication.isPlaying=false;
-        #else
-        Application.Quit();
-        #endif
+        // hand the wisp over, at its current spot beside QUIT, to the shared farewell sequence (input is dead from here on)
+        Vector2 screen=RectTransformUtility.WorldToScreenPoint(null,root.TransformPoint(cursor));
+        ReleaseCursor();
+        Cursor.lockState=CursorLockMode.None;Cursor.visible=false;
+        WishboundFarewell.Play(screen);
     }
     public void ReleaseCursor(){ready=false;if(wispImage)wispImage.color=Color.clear;if(wispCamera)wispCamera.enabled=false;if(wisp)wisp.gameObject.SetActive(false);}
     void OnDestroy()
