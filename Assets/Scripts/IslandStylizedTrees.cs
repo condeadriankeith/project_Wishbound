@@ -20,6 +20,10 @@ public class IslandStylizedTrees : MonoBehaviour
     public bool usePackageAssets = true;
     GhibliNatureSet natureSet;
     bool pkgMode;
+    GameObject cgo;
+    public GameObject TreeCollidersGO => cgo != null ? cgo : (cgo = GameObject.Find("TreeColliders"));
+
+    public void ClearAllExcludedSlots() { }
     List<GhibliBatch> pkgBatches;
 
     [Header("Distance LOD")]
@@ -121,7 +125,7 @@ public class IslandStylizedTrees : MonoBehaviour
         int G = Mathf.CeilToInt((float)(2 * e / spacing));
         var tp = new Vector2[G * G];
         var has = new bool[G * G];
-        GameObject cgo = null;
+        cgo = null;
         if (addColliders) { var oldC = GameObject.Find("TreeColliders"); if (oldC != null) Destroy(oldC); cgo = new GameObject("TreeColliders"); }
         int trees = 0, bushes = 0;
 

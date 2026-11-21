@@ -4,11 +4,9 @@ using Unity.Cinemachine;
 
 /// <summary>
 /// Third-person controller for exploring the island, driven through a Cinemachine orbital-follow camera.
-///   WASD move (relative to the camera) · Shift run · Space jump · C / Ctrl crouch
+///   WASD move (relative to the camera) · Shift run · Space jump / hold to float · C / Ctrl crouch
 ///   Mouse orbits the camera around the avatar · Mouse wheel changes camera distance
 ///   Esc releases the cursor, click captures it again. Gamepad is supported as well.
-/// The avatar is invisible by default (showAvatar); the camera stays locked onto it regardless.
-/// This component owns the Cinemachine camera's lens (vertical FOV, clip planes) and orbit angles.
 /// </summary>
 [RequireComponent(typeof(CharacterController))]
 public class IslandThirdPersonController : MonoBehaviour
@@ -18,6 +16,10 @@ public class IslandThirdPersonController : MonoBehaviour
     public Transform cameraTarget;          // point the camera is locked onto (created at chest height if empty)
     public Transform cam;                   // Main Camera transform (movement is relative to it)
 
+    [Header("Isometric rig (optional)")]
+    [Tooltip("When assigned, IsoCameraRig owns the camera yaw / pitch / radius and movement uses its latched heading. Leave empty for the classic mouse-orbit camera.")]
+    public IsoCameraRig isoRig;
+
     [Header("Movement (m/s)")]
     public float walkSpeed = 5f;
     public float sprintSpeed = 9f;
@@ -26,7 +28,33 @@ public class IslandThirdPersonController : MonoBehaviour
     public float airAcceleration = 3f;
     public float jumpHeightMeters = 1.1f;
     public float gravityMps2 = -22f;
+    [Tooltip("Scales gravity (StarRadiance lightens it for a Tether-aligned star).")]
+    public float gravityScale = 1f;
+    [Tooltip("Story hook: multiplies walk/sprint speed (StarAwakening ramps this up after the impact).")]
+    [Range(0f, 1.5f)] public float speedScale = 1f;
+    [Tooltip("Story hook: temporary cap near fragile moments (ChildConversation slows the star near the child).")]
+    [Range(0f, 1.5f)] public float speedCap = 1f;
     public float maxFallSpeed = 60f;
+
+    [Header("Star float (tap Space = hop, hold Space = float)")]
+    public bool floatEnabled = true;
+    [Tooltip("How long Space must be held before the hop turns into a float (the hop's apex is ~0.3 s, so it flows on from it).")]
+    public float holdToFloatSeconds = 0.3f;
+    public float floatRiseSpeed = 3.4f;
+    [Tooltip("Hard ceiling, metres above the terrain.")]
+    public float floatMaxHeight = 24f;
+    public float floatBob = 0.35f;
+    public float floatAcceleration = 5f;
+    [Tooltip("Story hook: set by StarRadiance from the alignment spectrum. >1 raises the float ceiling and rise speed (Tether); <1 lowers them (Roots). Float itself always stays available on both paths.")]
+    public float floatReachScale = 1f;
+    [Tooltip("After letting go of a float the star drifts down at no more than this (m/s).")]
+    public float softFallSpeed = 5f;
+
+    public bool IsFloating { get; private set; }
+    public float FloatHeight { get; private set; }
+    public int CameraMode { get; private set; } = 2;
+
+    [Header("Crouch & turning")]
     public float crouchHeight = 1.1f;
     public float turnSpeedDegPerSec = 720f; // how fast the avatar turns to face its movement direction
 
@@ -41,13 +69,16 @@ public class IslandThirdPersonController : MonoBehaviour
 
     [Header("Camera distance / lens")]
     public float distance = 20f;
-    public float minDistance = 10f;
+    public float minDistance = 0.02f;
     public float maxDistance = 38f;
     public float zoomStep = 1.12f;          // distance multiplier per mouse-wheel notch
     public float distanceSmoothing = 8f;
+    public float thirdPersonDistance = 12f;
+    public float overviewDistance = 34f;
+    public float distanceSmoothTime = 0.6f;
     [Range(10f, 70f)] public float verticalFov = 30f;  // narrow lens = flat, miniature look
     public float sprintFovBoost = 2.5f;
-    public float nearClip = 1f;
+    public float nearClip = 0.05f;
     public float farClip = 4000f;
     public float targetHeight = 1.1f;       // height of the camera lock point above the avatar's feet
 
@@ -59,12 +90,14 @@ public class IslandThirdPersonController : MonoBehaviour
 
     CharacterController cc;
     CinemachineOrbitalFollow orbital;
-    float camYaw, camPitch, vy, distCurrent, distTarget, fovCurrent;
+    float camYaw, camPitch, vy, distCurrent, distTarget, fovCurrent, distVel;
     Vector3 hVel;
     bool crouching, sprinting, wantLock = true;
     int skipLookFrames;
     float standHeight, bottomY, targetStand, targetCrouch;
     Vector3 startPos; float startYaw;
+    float heldSeconds, floatBegan; bool softFall;
+    float modePitchGoal, modePitchVel, modePitchTimer;
 
     void Awake()
     {
@@ -88,7 +121,12 @@ public class IslandThirdPersonController : MonoBehaviour
         if (vcam)
         {
             orbital = vcam.GetComponent<CinemachineOrbitalFollow>();
-            if (lockPitch) { orbital.VerticalAxis.Range = new Vector2(startPitch, startPitch); orbital.VerticalAxis.Center = startPitch; orbital.VerticalAxis.Wrap = false; }
+            if (lockPitch && !isoRig && orbital)
+            {
+                orbital.VerticalAxis.Range = new Vector2(startPitch, startPitch);
+                orbital.VerticalAxis.Center = startPitch;
+                orbital.VerticalAxis.Wrap = false;
+            }
             vcam.Lens.NearClipPlane = nearClip;
             vcam.Lens.FarClipPlane = farClip;
         }
@@ -124,6 +162,9 @@ public class IslandThirdPersonController : MonoBehaviour
     void OnApplicationFocus(bool focus) { if (focus && wantLock) SetCursorLocked(true); }
     void OnDisable() { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
 
+    public void CaptureCursor() => SetCursorLocked(true);
+    public void ReleaseCursor() => SetCursorLocked(false);
+
     void SetCursorLocked(bool locked)
     {
         wantLock = locked;
@@ -146,12 +187,12 @@ public class IslandThirdPersonController : MonoBehaviour
 
         // ---- cursor capture: Esc releases, click recaptures
         if (kb != null && kb.escapeKey.wasPressedThisFrame) SetCursorLocked(false);
-        else if (ms != null && ms.leftButton.wasPressedThisFrame && Cursor.lockState != CursorLockMode.Locked) SetCursorLocked(true);
+        else if (ms != null && ms.leftButton.wasPressedThisFrame && !LivingDayNight.PointerOverPanel && Cursor.lockState != CursorLockMode.Locked) SetCursorLocked(true);
         bool locked = Cursor.lockState == CursorLockMode.Locked;
 
         // ---- gather input
         Vector2 move = Vector2.zero, look = Vector2.zero;
-        bool sprintHeld = false, jumpPressed = false, crouchHeld = false;
+        bool sprintHeld = false, jumpPressed = false, jumpHeld = false, crouchHeld = false;
         float scroll = 0f;
 
         if (kb != null)
@@ -160,7 +201,12 @@ public class IslandThirdPersonController : MonoBehaviour
             move.y += (kb.wKey.isPressed ? 1 : 0) - (kb.sKey.isPressed ? 1 : 0);
             sprintHeld |= kb.leftShiftKey.isPressed;
             jumpPressed |= kb.spaceKey.wasPressedThisFrame;
+            jumpHeld |= kb.spaceKey.isPressed;
             crouchHeld |= kb.cKey.isPressed || kb.leftCtrlKey.isPressed;
+
+            if (kb.digit1Key.wasPressedThisFrame) SetCameraMode(1);
+            else if (kb.digit2Key.wasPressedThisFrame) SetCameraMode(2);
+            else if (kb.digit3Key.wasPressedThisFrame) SetCameraMode(3);
         }
         if (ms != null && locked)
         {
@@ -174,40 +220,51 @@ public class IslandThirdPersonController : MonoBehaviour
             look += gp.rightStick.ReadValue() * gamepadLookSpeed * dt;
             sprintHeld |= gp.leftStickButton.isPressed;
             jumpPressed |= gp.buttonSouth.wasPressedThisFrame;
+            jumpHeld |= gp.buttonSouth.isPressed;
             crouchHeld |= gp.buttonEast.isPressed;
         }
         move = Vector2.ClampMagnitude(move, 1f);
 
         // ---- camera orbit + zoom
-        camYaw = Mathf.Repeat(camYaw + look.x + 180f, 360f) - 180f;
+        if (!isoRig)
+            camYaw = Mathf.Repeat(camYaw + look.x + 180f, 360f) - 180f;
+
         if (!lockPitch) camPitch = Mathf.Clamp(camPitch + (invertY ? look.y : -look.y), minPitch, maxPitch);
-        else camPitch = startPitch;   // pitch locked: vertical input ignored
+        else camPitch = startPitch;
+
         if (Mathf.Abs(scroll) > 0.01f)
             distTarget = Mathf.Clamp(distTarget * (scroll > 0f ? 1f / zoomStep : zoomStep), minDistance, maxDistance);
 
+        if (isoRig && modePitchTimer > 0f)
+        {
+            modePitchTimer -= dt;
+            isoRig.basePitch = Mathf.SmoothDamp(isoRig.basePitch, modePitchGoal, ref modePitchVel, 0.45f, float.PositiveInfinity, dt);
+        }
+
         // ---- body / movement (camera-relative)
         UpdateCrouch(crouchHeld, dt);
-        Vector3 fwd = cam ? cam.forward : transform.forward;
+        Vector3 fwd = isoRig ? isoRig.ControlForward(move.sqrMagnitude > 0.0004f) : (cam ? cam.forward : transform.forward);
         fwd.y = 0f;
         fwd = fwd.sqrMagnitude > 1e-4f ? fwd.normalized : transform.forward;
         Vector3 right = Vector3.Cross(Vector3.up, fwd);
         Vector3 wishDir = fwd * move.y + right * move.x;
-        UpdateWalk(wishDir, sprintHeld, jumpPressed, dt);
+        UpdateWalk(wishDir, sprintHeld, jumpPressed, jumpHeld, dt);
 
         if (transform.position.y < respawnBelowY) Teleport(startPos, startYaw);
 
         ApplyCamera(dt);
     }
 
-    void UpdateWalk(Vector3 wishDir, bool sprintHeld, bool jumpPressed, float dt)
+    void UpdateWalk(Vector3 wishDir, bool sprintHeld, bool jumpPressed, bool jumpHeld, float dt)
     {
         bool grounded = cc.isGrounded;
         float inputMag = Mathf.Clamp01(wishDir.magnitude);
         sprinting = sprintHeld && !crouching && inputMag > 0.1f;
-        float speed = crouching ? crouchSpeed : sprinting ? sprintSpeed : walkSpeed;
+        UpdateFloat(jumpHeld, grounded, dt);
 
+        float speed = (crouching ? crouchSpeed : sprinting ? sprintSpeed : walkSpeed) * speedScale * speedCap;
         Vector3 wish = wishDir * speed;
-        float accel = grounded ? groundAcceleration : airAcceleration;
+        float accel = IsFloating ? floatAcceleration : (grounded ? groundAcceleration : airAcceleration);
         hVel = Vector3.Lerp(hVel, wish, 1f - Mathf.Exp(-accel * dt));
 
         // face the direction of travel
@@ -218,15 +275,50 @@ public class IslandThirdPersonController : MonoBehaviour
         }
 
         if (jumpPressed && grounded && !crouching)
-            vy = Mathf.Sqrt(2f * jumpHeightMeters * -gravityMps2);
+            vy = Mathf.Sqrt(2f * jumpHeightMeters * (-gravityMps2) * gravityScale);
 
-        // keep glued to the ground when walking downhill instead of hopping off the slope
-        if (grounded && vy < 0f)
-            vy = -Mathf.Max(2f, hVel.magnitude * Mathf.Tan(cc.slopeLimit * Mathf.Deg2Rad));
-        vy = Mathf.Max(vy + gravityMps2 * dt, -maxFallSpeed);
+        if (IsFloating)
+        {
+            float ceiling = floatMaxHeight * floatReachScale;
+            float rise = floatRiseSpeed * Mathf.Lerp(0.6f, 1.4f, Mathf.InverseLerp(0.4f, 1.6f, floatReachScale));
+            float targetVy = FloatHeight < ceiling - 0.5f ? rise : (ceiling - FloatHeight) * 2f;
+            targetVy += Mathf.Sin((Time.time - floatBegan) * 1.7f) * floatBob;
+            vy = Mathf.Lerp(vy, targetVy, 1f - Mathf.Exp(-3.2f * dt));
+        }
+        else
+        {
+            // keep glued to the ground when walking downhill instead of hopping off the slope
+            if (grounded && vy < 0f)
+                vy = -Mathf.Max(2f, hVel.magnitude * Mathf.Tan(cc.slopeLimit * Mathf.Deg2Rad));
+            vy = Mathf.Max(vy + gravityMps2 * gravityScale * dt, -(softFall ? softFallSpeed : maxFallSpeed));
+        }
 
         cc.Move((hVel + Vector3.up * vy) * dt);
         if ((cc.collisionFlags & CollisionFlags.Above) != 0 && vy > 0f) vy = 0f;   // bonked a ceiling
+    }
+
+    void UpdateFloat(bool jumpHeld, bool grounded, float dt)
+    {
+        bool canFloat = floatEnabled && !crouching && !WishboundIntro.IsPlaying && (!HouseEntrances.Instance || !HouseEntrances.Instance.Inside);
+        heldSeconds = jumpHeld ? heldSeconds + dt : 0f;
+        if (!canFloat || !jumpHeld)
+        {
+            if (IsFloating)
+            {
+                IsFloating = false;
+                softFall = true;
+            }
+        }
+        else if (!IsFloating && heldSeconds >= holdToFloatSeconds)
+        {
+            IsFloating = true;
+            floatBegan = Time.time;
+        }
+        if (grounded && !IsFloating)
+        {
+            softFall = false;
+        }
+        FloatHeight = (IsFloating || softFall) ? Mathf.Max(0f, transform.position.y - TerrainProbe.GroundY(transform.position, transform.position.y)) : 0f;
     }
 
     void UpdateCrouch(bool crouchHeld, float dt)
@@ -253,19 +345,85 @@ public class IslandThirdPersonController : MonoBehaviour
         return !Physics.SphereCast(origin, r, Vector3.up, out _, dist, ~0, QueryTriggerInteraction.Ignore);
     }
 
+    public void SetCameraMode(int mode)
+    {
+        CameraMode = mode;
+        distTarget = mode switch
+        {
+            2 => thirdPersonDistance,
+            1 => minDistance,
+            _ => Mathf.Min(overviewDistance, maxDistance),
+        };
+        if (isoRig && mode == 2)
+        {
+            modePitchGoal = Mathf.Clamp(isoRig.basePitch, 18f, 40f);
+            modePitchTimer = 0.9f;
+            modePitchVel = 0f;
+        }
+    }
+
+    public void PrepareThirdPerson()
+    {
+        CameraMode = 2;
+        distTarget = distCurrent = thirdPersonDistance;
+        distVel = 0f;
+        if (isoRig)
+        {
+            isoRig.basePitch = 22f;
+            isoRig.SetZoomDistance(distCurrent);
+        }
+        ApplyCamera(0f);
+    }
+
+    public void PrepareFirstPerson()
+    {
+        distTarget = distCurrent = minDistance;
+        if (isoRig)
+        {
+            isoRig.basePitch = 0f;
+            isoRig.SetZoomDistance(minDistance);
+        }
+        ApplyCamera(0f);
+    }
+
+    public void SetCameraDistance(float value)
+    {
+        distTarget = Mathf.Clamp(value, minDistance, maxDistance);
+    }
+
     void ApplyCamera(float dt)
     {
-        distCurrent = dt <= 0f ? distTarget : Mathf.Lerp(distCurrent, distTarget, 1f - Mathf.Exp(-distanceSmoothing * dt));
-        float fovTarget = verticalFov + (sprinting ? sprintFovBoost : 0f);
+        if (dt <= 0f)
+        {
+            distCurrent = distTarget;
+            distVel = 0f;
+        }
+        else
+        {
+            float logD = Mathf.SmoothDamp(Mathf.Log(distCurrent + 0.8f), Mathf.Log(distTarget + 0.8f), ref distVel, distanceSmoothTime, float.PositiveInfinity, dt);
+            distCurrent = Mathf.Max(minDistance, Mathf.Exp(logD) - 0.8f);
+        }
+        float tDistance = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(10f, 26f, distCurrent));
+        float tFirstPerson = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.08f, 1.1f, distCurrent));
+        float fovTarget = Mathf.Lerp(Mathf.Lerp(55f, verticalFov, tDistance), 70f, tFirstPerson) + (sprinting ? sprintFovBoost : 0f);
         fovCurrent = dt <= 0f ? fovTarget : Mathf.Lerp(fovCurrent, fovTarget, 1f - Mathf.Exp(-6f * dt));
 
-        if (orbital)
+        if (isoRig)
+        {
+            isoRig.SetZoomDistance(distCurrent);
+        }
+        else if (orbital)
         {
             orbital.HorizontalAxis.Value = camYaw;
             orbital.VerticalAxis.Value = camPitch;
             orbital.Radius = distCurrent;
         }
-        if (vcam) vcam.Lens.FieldOfView = fovCurrent;
+
+        if (vcam)
+        {
+            vcam.Lens.FieldOfView = isoRig ? isoRig.ProfileFov(fovCurrent) : fovCurrent;
+            vcam.Lens.NearClipPlane = Mathf.Lerp(0.05f, nearClip, tDistance);
+        }
     }
 
     public void Teleport(Vector3 pos, float yaw)
@@ -275,7 +433,8 @@ public class IslandThirdPersonController : MonoBehaviour
         transform.SetPositionAndRotation(pos, Quaternion.Euler(0f, yaw, 0f));
         cc.enabled = true;
         vy = 0f; hVel = Vector3.zero;
-        camYaw = yaw;
+        if (isoRig) isoRig.OnTargetWarped();
+        else camYaw = yaw;
         if (vcam && cameraTarget) vcam.OnTargetObjectWarped(cameraTarget, delta);   // no camera swoosh after a teleport
     }
 }

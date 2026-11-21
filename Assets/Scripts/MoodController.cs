@@ -64,7 +64,8 @@ public class MoodController : MonoBehaviour
         Vector3 sunU = MirrorZ ? new Vector3(sunSrc.x, sunSrc.y, -sunSrc.z) : sunSrc;
         if (skyMat) { skyMat.SetColor("_Top", cur.top); skyMat.SetColor("_Mid", cur.mid); skyMat.SetColor("_Hor", cur.hor); }
         Shader.SetGlobalVector("_GhibliSunDir", sunU);
-        RenderSettings.fogColor = cur.fog; RenderSettings.fogDensity = 0.0011f;
+        float fogD = WishboundIntro.FogOverride > 0f ? WishboundIntro.FogOverride : 0.0011f;
+        RenderSettings.fogColor = cur.fog; RenderSettings.fogDensity = fogD;
         RenderSettings.fogMode = FogMode.ExponentialSquared; RenderSettings.fog = true;
         if (sun) { sun.color = cur.sc; sun.intensity = cur.si; sun.transform.rotation = Quaternion.LookRotation(-sunU); }
         Shader.SetGlobalVector("_HemiSky", (Vector4)(Vector3)(Vector4)cur.hs);
@@ -83,7 +84,7 @@ public class MoodController : MonoBehaviour
         if (oceanMat) { oceanMat.SetColor("_CDeep", cur.dp); oceanMat.SetColor("_CShal", cur.sh); }
         Shader.SetGlobalVector("_GhibliSunDirSrc", sunSrc);
         Shader.SetGlobalColor("_GhibliFogColor", cur.fog);
-        Shader.SetGlobalFloat("_GhibliFogDensity", 0.0011f);
+        Shader.SetGlobalFloat("_GhibliFogDensity", fogD);
         Shader.SetGlobalFloat("_GhibliE", (float)E);
         Shader.SetGlobalFloat("_GhibliMirrorZ", MirrorZ ? 1f : 0f);
         if (beamMat)

@@ -24,8 +24,20 @@ public class GhibliBatch
     /// <param name="pad">extra bounds around instance positions (mesh extent x max scale)</param>
     /// <param name="farEvery">0/1 = no far LOD; N = far array keeps every Nth instance</param>
     /// <param name="farScale">uniform scale multiplier applied to far instances (compensates for thinning)</param>
+    List<Matrix4x4> src; float srcCell; Vector3 srcPad; int srcFarEvery; float srcFarScale;
+
+    /// <summary>Removes every instance whose position satisfies the predicate and rebuilds the chunks. Returns the number removed.</summary>
+    public int RemoveWhere(System.Func<Vector3, bool> inside)
+    {
+        if (src == null || inside == null) return 0;
+        int n = src.RemoveAll(m => inside((Vector3)m.GetColumn(3)));
+        if (n > 0) Build(src, srcCell, srcPad, srcFarEvery, srcFarScale);
+        return n;
+    }
+
     public void Build(List<Matrix4x4> all, float cell, Vector3 pad, int farEvery = 0, float farScale = 1f)
     {
+        src = all; srcCell = cell; srcPad = pad; srcFarEvery = farEvery; srcFarScale = farScale;
         chunks.Clear();
         Count = all.Count;
         var map = new Dictionary<long, List<Matrix4x4>>();

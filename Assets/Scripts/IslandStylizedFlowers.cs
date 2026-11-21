@@ -43,6 +43,16 @@ public class IslandStylizedFlowers : MonoBehaviour
     [SerializeField, HideInInspector] bool started;
     bool building;
 
+    public bool Ready => batches != null && batches.Count > 0 && !building;
+
+    public int ClearWhere(System.Func<Vector3, bool> inside)
+    {
+        int num = 0;
+        foreach (var batch in batches)
+            num += batch.RemoveWhere(inside);
+        return num;
+    }
+
     void Start()
     {
         if (!FLOWERS_ENABLED) return;

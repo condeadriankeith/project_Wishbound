@@ -12,6 +12,7 @@ public class IslandBuilder : MonoBehaviour
     static Color C(uint hex) => new Color(((hex >> 16) & 255) / 255f, ((hex >> 8) & 255) / 255f, (hex & 255) / 255f, 1f);
 
     [SerializeField, HideInInspector] bool wasBuilt; public static float[] HGrid;   // serialized: survives a script reload during Play
+    public static Color[] BaseColors;
 
     void Awake()
     {
@@ -90,7 +91,7 @@ var idx = new int[N * N * 6];
         mesh.RecalculateNormals();
         var nrm = mesh.normals;
 
-        mesh.colors = PaintVertices(pos, h, nrm);
+        mesh.colors = BaseColors = PaintVertices(pos, h, nrm);
         mesh.RecalculateBounds();
         var mf = GetComponent<MeshFilter>();
         if (mf) mf.sharedMesh = mesh;

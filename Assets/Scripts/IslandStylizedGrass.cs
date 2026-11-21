@@ -39,6 +39,8 @@ public class IslandStylizedGrass : MonoBehaviour
     public float nearDistance = 35f;
     public int farEvery = 3;
     public float farScale = 1.7f;
+    [Tooltip("Last N metres before maxRenderDistance: clumps shrink and dither out instead of popping off.")]
+    public float edgeFade = 45f;
 
     // ===== STYLIZED GRASS MASTER TOGGLE =====
     // true = grass on. (Was false 'for fast load times' before the Ghibli package; scatter is now time-sliced.)
@@ -49,6 +51,16 @@ public class IslandStylizedGrass : MonoBehaviour
     readonly Plane[] planes = new Plane[6];
     [SerializeField, HideInInspector] bool started;   // serialized: survives a script reload during Play
     bool building;
+
+    public bool Ready => batches != null && batches.Count > 0 && !building;
+
+    public int ClearWhere(System.Func<Vector3, bool> inside)
+    {
+        int num = 0;
+        foreach (var batch in batches)
+            num += batch.RemoveWhere(inside);
+        return num;
+    }
 
     void Start()
     {
