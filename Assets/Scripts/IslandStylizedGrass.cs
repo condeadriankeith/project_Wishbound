@@ -20,7 +20,7 @@ public class IslandStylizedGrass : MonoBehaviour
     [Header("Ghibli package grass")]
     public bool usePackageAssets = true;
     [Tooltip("Total grass clumps planted over the terrain.")]
-    public int clumpCount = 350000;
+    public int clumpCount = 120000;
     public int seed = 777;
     public float minHeight = 1.5f;
     public float maxHeight = 330f;
@@ -31,13 +31,16 @@ public class IslandStylizedGrass : MonoBehaviour
     [Tooltip("Uniform clump scale range (package clumps are ~0.3 m tall).")]
     public float minScale = 1.25f, maxScale = 2.0f;
     [Tooltip("Milliseconds of scatter work per frame while the grass is being planted.")]
-    public float scatterBudgetMs = 6f;
+    public float scatterBudgetMs = 10f;
+    [Header("Performance caps (applied on top of the serialized values)")]
+    public int maxClumps = 70000;
+    public float renderDistanceCap = 65f, nearDistanceCap = 22f;
 
     [Header("Distance LOD")]
-    public float maxRenderDistance = 120f;
+    public float maxRenderDistance = 90f;
     [Tooltip("Beyond this distance chunks draw the thinned 'far' clumps.")]
-    public float nearDistance = 35f;
-    public int farEvery = 3;
+    public float nearDistance = 30f;
+    public int farEvery = 6;
     public float farScale = 1.7f;
     [Tooltip("Last N metres before maxRenderDistance: clumps shrink and dither out instead of popping off.")]
     public float edgeFade = 45f;
@@ -73,10 +76,10 @@ public class IslandStylizedGrass : MonoBehaviour
     }
     void OnEnable() { if (Application.isPlaying && started && batches.Count == 0 && !building) StartCoroutine(Reinit()); }
 
-    IEnumerator Reinit()
+IEnumerator Reinit()
     {
         while (IslandBuilder.Instance == null || IslandBuilder.Instance.PathMap == null) yield return null;
-        yield return null;
+        yield return new WaitForSecondsRealtime(1.5f);   // let the first frames render before baking
         yield return StartCoroutine(Init());
     }
 
@@ -108,15 +111,17 @@ public class IslandStylizedGrass : MonoBehaviour
         var rng = new System.Random(seed);
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var total = System.Diagnostics.Stopwatch.StartNew();
-        int accepted = 0, attempts = 0, guard = clumpCount * 60;
+        int target = Mathf.Min(clumpCount, maxClumps);
+        int accepted = 0, attempts = 0, guard = target * 60;
         double e = E;
-        while (accepted < clumpCount && attempts++ < guard)
+        while (accepted < target && attempts++ < guard)
         {
             double x = (rng.NextDouble() * 2 - 1) * e;
             double z = (rng.NextDouble() * 2 - 1) * e;
             float r1 = (float)rng.NextDouble(), r2 = (float)rng.NextDouble(), r3 = (float)rng.NextDouble(), r4 = (float)rng.NextDouble();
-            if (sw.Elapsed.TotalMilliseconds >= scatterBudgetMs) { yield return null; sw.Restart(); }
+            if (sw.Elapsed.TotalMilliseconds >= Mathf.Min(scatterBudgetMs, 3f)) { yield return null; sw.Restart(); }
 
+            if (GrassExclusions.Contains(x, z)) continue;
             float h = Hm(x, z);   // rendered-mesh height: clumps sit on visible ground
             if (h < minHeight || h > maxHeight) continue;
             float normalY = NV(x, z).y;   // one accurate analytic-normal check at the candidate point
@@ -148,10 +153,13 @@ public class IslandStylizedGrass : MonoBehaviour
 
         for (int i = 0; i < np; i++)
         {
+            // Exclusions may be registered while this time-sliced scatter is running.
+            lists[i].RemoveAll(m => GrassExclusions.Contains(m.m03, TerrainMath.MirrorZ ? -m.m23 : m.m23));
             var pc = natureSet.grass[i];
             var b = new GhibliBatch(pc.mesh, pc.materials) { shadows = UnityEngine.Rendering.ShadowCastingMode.Off };
-            b.Build(lists[i], 64f, new Vector3(pc.MaxXZ * maxScale * 1.6f, pc.maxY * maxScale * 1.5f, pc.MaxXZ * maxScale * 1.6f), farEvery, farScale);
+            b.Build(lists[i], 16f, new Vector3(pc.MaxXZ * maxScale * 1.6f, pc.maxY * maxScale * 1.5f, pc.MaxXZ * maxScale * 1.6f), farEvery, farScale);
             batches.Add(b);
+            yield return null;   // spread the chunk build over frames: no single-frame spike
         }
         building = false;
         Debug.Log("[IslandStylizedGrass] Ghibli package grass: " + accepted + " clumps planted in " + total.Elapsed.TotalSeconds.ToString("F1") + " s (attempts " + attempts + ").");
@@ -159,10 +167,10 @@ public class IslandStylizedGrass : MonoBehaviour
 
     void Update()
     {
-        if (batches.Count == 0) return;
+        if (batches.Count == 0 || (HouseEntrances.Instance && HouseEntrances.Instance.Inside)) return;
         var cam = Camera.main; if (cam == null) return;
         GeometryUtility.CalculateFrustumPlanes(cam, planes);
         Vector3 cp = cam.transform.position;
-        foreach (var b in batches) b.Draw(cp, planes, maxRenderDistance, nearDistance, 0f);
+        foreach (var b in batches) b.Draw(cp, planes, Mathf.Min(maxRenderDistance, renderDistanceCap), Mathf.Min(nearDistance, nearDistanceCap), 0f, cam);
     }
 }

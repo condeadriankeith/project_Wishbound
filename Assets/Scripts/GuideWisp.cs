@@ -19,7 +19,7 @@ public class GuideWisp : MonoBehaviour
     public Material haloMaterial;      // Assets/Art/Star/StarHalo.mat
     public Material sparkMaterial;     // Assets/Art/Comet/CometEmber.mat
     public float leadDistance = 5.5f, waitDistance = 10f, arriveRadius = 3.5f, height = 1.3f, appearDelay = 3f, maxSpeed = 11f;
-    public Color colour = new Color(1f, .85f, .5f);
+    public Color colour = WispPreset.Colour;
     [Tooltip("Clear space kept between the wisp's path and a tree trunk (metres).")] public float trunkClearance = 1.2f;
     [Tooltip("Steepest bank (rise over run) the wisp will lead the star up.")] public float maxGradient = .9f;
 
@@ -54,12 +54,7 @@ public class GuideWisp : MonoBehaviour
         if (haloMaterial)
         {
             // soft wide halo, warm body, white-hot core, then three motes circling it
-            AddLayer("Halo", 3.8f, new Color(.9f, .55f, .25f), new Color(.22f, .18f, .6f), 3.4f, .55f, .30f);
-            AddLayer("Body", 1.5f, new Color(1.5f, 1.0f, .45f), new Color(.5f, .35f, .85f), 2.6f, .12f, .85f);
-            AddLayer("Core", .42f, new Color(3f, 2.8f, 2.2f), new Color(1.6f, 1.1f, .5f), 1.8f, 0f, 1.1f);
-            AddLayer("Mote A", .17f, new Color(1.6f, 2f, 2.6f), new Color(.4f, .6f, 1.2f), 2f, 0f, .9f, .46f, 2.1f, .35f);
-            AddLayer("Mote B", .13f, new Color(2.4f, 1.8f, 1f), new Color(.8f, .5f, .3f), 2f, 0f, .8f, .64f, -1.5f, -.6f);
-            AddLayer("Mote C", .11f, new Color(1.6f, 2f, 2.6f), new Color(.4f, .6f, 1.2f), 2f, 0f, .7f, .84f, 1.1f, .9f);
+            foreach (var L in WispPreset.Layers) AddLayer(L.name, L.scale, L.inner, L.outer, L.falloff, L.rays, L.intensity, L.orbit, L.orbitSpeed, L.tilt);
         }
 
         glow = wisp.gameObject.AddComponent<Light>(); glow.type = LightType.Point; glow.color = colour; glow.range = 5f; glow.intensity = 0; glow.shadows = LightShadows.None;
@@ -118,7 +113,7 @@ public class GuideWisp : MonoBehaviour
         wisp.position = at; wisp.localScale = Vector3.one * .30f;
         foreach (var t in wisp.GetComponentsInChildren<Transform>()) t.gameObject.layer = 31;
         Fade(opacity, Time.unscaledDeltaTime);
-        trail.widthMultiplier = .08f;
+        trail.widthMultiplier = (.6f + alpha * .6f) * .30f;
         glow.intensity = 0;
     }
 
@@ -267,9 +262,9 @@ public class GuideWisp : MonoBehaviour
     {
         alpha = Mathf.MoveTowards(alpha, to, dt * 1.5f);
         if (!wisp || !wisp.gameObject.activeSelf) return;
-        float flick = .92f + .08f * (Mathf.PerlinNoise(VisT * 7f, phase) * 2f - 1f);
-        glow.intensity = alpha * 2.4f * flick; glow.range = 4.2f + alpha * .8f;
-        float breathe = 1f + .1f * Mathf.Sin(VisT * 3.1f + phase);
+        float flick = .92f + .08f * (Mathf.PerlinNoise(VisT * WispPreset.FlickerFreq, phase) * 2f - 1f);
+        glow.intensity = alpha * WispPreset.HaloIntensity * flick; glow.range = 4.2f + alpha * .8f;
+        float breathe = 1f + .1f * Mathf.Sin(VisT * WispPreset.PulseSpeed + phase);
         for (int i = 0; i < layers.Count; i++)
         {
             var l = layers[i];

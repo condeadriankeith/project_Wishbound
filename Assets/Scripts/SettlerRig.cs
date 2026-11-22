@@ -9,7 +9,7 @@ using UnityEngine;
 [DefaultExecutionOrder(100)]
 public class SettlerRig : MonoBehaviour
 {
-    public enum Pose { Idle, Dig, Water, Crouch, Wave, Scratch, Talk, Cower, Point, Carry, Fish, Sit, Cheer, Sweep, PickUp, HandOver, Sow, Eat, Sleep, PullCart }
+    public enum Pose { Idle, Dig, Water, Crouch, Wave, Scratch, Talk, Cower, Point, Carry, Fish, Sit, Cheer, Sweep, PickUp, HandOver, Sow, Eat, Sleep, PullCart, ShoulderCarry, WarmHands }
 
     [Header("State (set by SettlerBrain)")]
     public Pose pose = Pose.Idle;
@@ -55,11 +55,16 @@ public class SettlerRig : MonoBehaviour
         switch (p)
         {
             case Pose.PickUp: {float c=(1+Mathf.Sin(time*2.8f))*.5f; o.hipY=-.16f*c;o.lean=15+28*c;o.aLs=55;o.aRs=65;o.headP=25;o.lL=25*c;o.lR=22*c;break;}
+            case Pose.WarmHands: o.aLs=58+Mathf.Sin(time*1.6f)*3; o.aRs=62-Mathf.Sin(time*1.6f)*3; o.lean=7; o.headP=12; o.aLo=5; o.aRo=5; break;
             case Pose.HandOver: o.aLs=70;o.aRs=78;o.lean=8;o.headP=6;break;
             case Pose.Sow: o.lean=26;o.aLs=35;o.aRs=50+s*22;o.twist=s*8;o.headP=30;break;
             case Pose.Eat: o.aRs=82+s*10;o.aLs=50;o.headP=10+s*3;break;
             case Pose.Sleep: o.hipY=-.19f;o.lL=55;o.lR=55;o.lean=12;o.headP=25+s*2;o.aLs=28;o.aRs=28;break;
             case Pose.PullCart: o.aLs=-18;o.aRs=-18;o.aLo=8;o.aRo=8;o.lean=12;o.headP=4;break;
+            case Pose.ShoulderCarry: // one arm up holding the hoe shaft on the shoulder, the other hanging
+                o.aLd = 10; o.aLs = 5; o.aLo = 4;            // left arm hangs
+                o.aRd = -55; o.aRs = 10; o.aRo = -12;        // right arm lifts to shoulder height
+                o.lean = 6; o.headP = 2; o.headY = 4; break;
             case Pose.Idle: o.aLs = 4 + s * 2; o.aRs = 4 - s * 2; o.headP = s * 2; o.hipY = s * .01f; break;
             case Pose.Dig:   // rhythmic hoe: both arms raise forward and chop down, body bobs with it
                 { float c = Mathf.Sin(time * 3.2f); float up = Mathf.Max(0, c);
@@ -102,10 +107,16 @@ public class SettlerRig : MonoBehaviour
         phase += dt * Mathf.Lerp(5f, 11f, Mathf.Clamp01(speed / 4f)) * (w > .01f ? 1 : 0);
         float stride = Mathf.Lerp(18, 28, Mathf.Clamp01(speed / 4f)) * w;
         float swingL = cur.lL + Mathf.Sin(phase) * stride, swingR = cur.lR - Mathf.Sin(phase) * stride;
-        float armSwing = Mathf.Sin(phase) * stride * .8f * (pose == Pose.Carry || pose == Pose.PullCart ? .08f : 1);
+        float armSwing = Mathf.Sin(phase - .35f) * stride * .8f * (pose == Pose.Carry || pose == Pose.PullCart ? .08f : 1);
         float bob = Mathf.Abs(Mathf.Cos(phase)) * .05f * w * (.6f + energy * .8f);
         float roll = Mathf.Sin(phase) * 4 * w;
 
+        // ---- life: breathing, a slow weight shift when still, and a head that leads every turn with the spine following
+        float breath = Mathf.Sin(MotionTime * 1.9f), still = 1f - Mathf.Clamp01(speed / .6f);
+        float yawNow = avatar.eulerAngles.y, yawRate = Mathf.DeltaAngle(lastYaw, yawNow) / Mathf.Max(dt, .001f); lastYaw = yawNow;
+        leadY = Approach(leadY, Mathf.Clamp(yawRate * .09f, -24f, 24f), 1 - Mathf.Exp(-6 * dt));
+        float idleShift = Mathf.Sin(MotionTime * .45f) * .012f * still;
+        float counter = Mathf.Sin(phase) * w;
         // ---- head look-at (yaw/pitch toward a point, clamped)
         float lookY = 0, lookP = 0;
         Vector3? lp = lookTarget ? lookTarget.position + Vector3.up * .8f : lookPoint;
@@ -119,18 +130,18 @@ public class SettlerRig : MonoBehaviour
 
         // ---- apply (avatar space: x right, y up, z forward)
         Quaternion A = avatar.rotation;
-        Quaternion qH = Quaternion.Euler(0, cur.twist * .3f, roll * .5f);
-        Quaternion qS = qH * Quaternion.Euler(cur.lean, cur.twist, roll * .5f);
-        hips.position = avatar.TransformPoint(hipsRestLocal + Vector3.up * (cur.hipY + bob));
+        Quaternion qH = Quaternion.Euler(0, cur.twist * .3f + counter * 5f, roll * .5f + idleShift * 120f);
+        Quaternion qS = qH * Quaternion.Euler(cur.lean + breath * 1.1f, cur.twist - counter * 7f + leadY * .35f, roll * .5f);
+        hips.position = avatar.TransformPoint(hipsRestLocal + Vector3.up * (cur.hipY + bob) + Vector3.right * (Mathf.Sin(phase) * .012f * w + idleShift));
         hips.rotation = A * qH * rHips;
         spine.rotation = A * qS * rSpine;
-        head.rotation = A * qS * Quaternion.Euler(cur.headP + hP - cur.lean * .5f, cur.headY + hY, cur.headR) * rHead;
+        head.rotation = A * qS * Quaternion.Euler(cur.headP + hP - cur.lean * .5f - breath * .4f, cur.headY + hY + leadY * .7f, cur.headR) * rHead;
         // arms: start from T-pose, lower ("down") about the forward axis, then swing about the right axis, then lift out
         armL.rotation = A * qS * Quaternion.AngleAxis(-(cur.aLs + armSwing), Vector3.right) * Quaternion.AngleAxis(Mathf.Clamp(cur.aLd - cur.aLo, -45, 62), Vector3.forward) * rArmL;
         armR.rotation = A * qS * Quaternion.AngleAxis(-(cur.aRs - armSwing), Vector3.right) * Quaternion.AngleAxis(-Mathf.Clamp(cur.aRd - cur.aRo, -45, 62), Vector3.forward) * rArmR;
         legL.rotation = A * qH * Quaternion.AngleAxis(-swingL, Vector3.right) * rLegL;
         legR.rotation = A * qH * Quaternion.AngleAxis(-swingR, Vector3.right) * rLegR;
-        float bend = pose == Pose.Carry ? 42 : pose == Pose.Fish ? 32 : pose == Pose.Dig || pose == Pose.Sweep ? 20 : pose == Pose.Talk ? 25 : 8;
+        float bend = pose == Pose.WarmHands ? 48 : pose == Pose.Carry ? 42 : pose == Pose.Fish ? 32 : pose == Pose.Dig || pose == Pose.Sweep ? 20 : pose == Pose.Talk ? 25 : 8;
         elbowBend = Approach(elbowBend,bend,k);
         if(elbowL) elbowL.localRotation=Quaternion.Euler(0,elbowBend,0);
         if(elbowR) elbowR.localRotation=Quaternion.Euler(0,-elbowBend,0);
@@ -163,5 +174,5 @@ public class SettlerRig : MonoBehaviour
         upper.rotation=Quaternion.FromToRotation(Vector3.right*side,joint-upper.position);
         elbow.rotation=Quaternion.FromToRotation(Vector3.right*side,upper.position+axis*d-elbow.position);
     }
-    float hY, hP, elbowBend, kneeBend, workBlend;
+    float hY, hP, elbowBend, kneeBend, workBlend, leadY, lastYaw;
 }

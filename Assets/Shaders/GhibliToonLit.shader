@@ -33,6 +33,8 @@ Shader "Ghibli/ToonLit"
             #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
             #pragma multi_compile_fragment _ _SHADOWS_SOFT
             #pragma multi_compile_fog
+            #pragma multi_compile _ _CLUSTER_LIGHT_LOOP
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHTS
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
             half4 _Color, _RimColor, _EmissionColor;
@@ -42,6 +44,7 @@ Shader "Ghibli/ToonLit"
             UNITY_INSTANCING_BUFFER_END(Props)
             float4 _HemiSky, _HemiGround;
             float  _HemiIntensity;
+            float  _ToonAddLights;   // global: 1 inside houses (point lights light the toon surfaces), 0 outside
             struct Attributes { float4 posOS:POSITION; float3 nOS:NORMAL; half4 col:COLOR; UNITY_VERTEX_INPUT_INSTANCE_ID };
             struct Varyings
             {
@@ -113,7 +116,24 @@ Shader "Ghibli/ToonLit"
                 float ramp = smoothV < 0.25 ? 0.3137 : smoothV < 0.5 ? 0.5490 : smoothV < 0.75 ? 0.8039 : 1.0;
                 half3 direct = L.color * ramp * L.shadowAttenuation;
                 half3 hemi = lerp(_HemiGround.rgb, _HemiSky.rgb, N.y * 0.5 + 0.5) * _HemiIntensity;
-                half3 col = albedo * (direct + hemi) + _EmissionColor.rgb;
+                half3 extra = 0;
+                if (_ToonAddLights > 0.001)
+                {
+#if defined(_ADDITIONAL_LIGHTS) || USE_CLUSTER_LIGHT_LOOP
+                    InputData inputData = (InputData)0;
+                    inputData.positionWS = i.posWS;
+                    inputData.normalizedScreenSpaceUV = GetNormalizedScreenSpaceUV(i.posCS);
+                    uint pixelLightCount = GetAdditionalLightsCount();
+                    LIGHT_LOOP_BEGIN(pixelLightCount)
+                        Light al = GetAdditionalLight(lightIndex, i.posWS);
+                        float av = saturate(dot(N, al.direction) * 0.5 + 0.5);
+                        float ar = av < 0.25 ? 0.3137 : av < 0.5 ? 0.5490 : av < 0.75 ? 0.8039 : 1.0;
+                        extra += al.color * (ar * al.distanceAttenuation);
+                    LIGHT_LOOP_END
+#endif
+                    extra *= _ToonAddLights;
+                }
+                half3 col = albedo * (direct + hemi + extra) + _EmissionColor.rgb;
                 float3 Vv = normalize(GetWorldSpaceViewDir(i.posWS));
                 col += pow(1.0 - saturate(dot(N, Vv)), _RimPower) * _RimColor.rgb * _RimStrength;
                 col = MixFog(col, i.fog);

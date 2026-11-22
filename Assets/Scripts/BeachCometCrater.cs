@@ -140,6 +140,11 @@ public class BeachCometCrater : MonoBehaviour
     public Vector3 Center { get; private set; }
     public Vector3 Downrange { get; private set; }
     public bool Revealed { get; private set; }
+    /// <summary>True once the crater's ground COLLIDER (not just the visual mesh) matches the final carved shape.
+    /// The visible terrain sinks over formSeconds during Impact(), but the MeshCollider is only rebuilt once, at the
+    /// very end (updateCollider:true) - anything that places a character using ground height before this is true
+    /// will be placed using a stale, un-deformed collider and snap/glitch once the real collider catches up.</summary>
+    public bool ColliderSettled { get; private set; } = true; // true by default: a crater that was never revealed has nothing to settle
 
     readonly List<UnityEngine.Object> owned = new List<UnityEngine.Object>();
     ParticleSystem smoke, embers;
@@ -394,7 +399,8 @@ public class BeachCometCrater : MonoBehaviour
     {
         Revealed = true;
         revealTime = fresh ? Time.time : -999;
-        if (!fresh) { Amount = 1; ApplyAmount(1, 1, true); SetPropsVisible(true); if (smoke) smoke.Play(); if (embers) embers.Play(); UpdateCooling(); return; }
+        if (!fresh) { Amount = 1; ApplyAmount(1, 1, true); ColliderSettled = true; SetPropsVisible(true); if (smoke) smoke.Play(); if (embers) embers.Play(); UpdateCooling(); return; }
+        ColliderSettled = false; // the collider stays at its pre-impact shape until Impact() finishes and rebuilds it
         StartCoroutine(Impact());
     }
 
@@ -426,7 +432,7 @@ public class BeachCometCrater : MonoBehaviour
             if (k > .35f && !propsShown) { propsShown = true; SetPropsVisible(true); }
             yield return null;
         }
-        Amount = 1; ApplyAmount(1, 1, true); if (!propsShown) SetPropsVisible(true);
+        Amount = 1; ApplyAmount(1, 1, true); ColliderSettled = true; if (!propsShown) SetPropsVisible(true);
         for (float f = 0; f < 3.5f; f += Time.unscaledDeltaTime) { flash.intensity = Mathf.Lerp(14, 2.2f, f / 3.5f); flash.range = Mathf.Lerp(140, 14, f / 3.5f); yield return null; }
         flash.color = new Color(.5f, .85f, 1f); flash.range = 12; flash.intensity = 1.6f;   // the cooling glow that remains
         Destroy(burst.gameObject, 8); Destroy(debris.gameObject, 8); if (ring) Destroy(ring, 3);

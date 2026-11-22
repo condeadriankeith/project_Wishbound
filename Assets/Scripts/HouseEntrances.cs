@@ -64,6 +64,7 @@ public class HouseEntrances : MonoBehaviour
             d.point = t.TransformPoint(type.doorLocal) + t.forward * .4f;
             if (Physics.Raycast(d.point + Vector3.up * 1.2f, Vector3.down, out var gh, 6f, ~0, QueryTriggerInteraction.Ignore)) d.point = gh.point;   // the doorstep, not the eave above it
             d.outward = t.forward;
+            GrassExclusions.Add(d.point, 2.5f);   // keep scattered grass off the doorstep
             doors.Add(d);
         }
         Debug.Log("[HouseEntrances] " + doors.Count + " doors found");
@@ -101,20 +102,20 @@ public class HouseEntrances : MonoBehaviour
 
     void Update()
     {
-        if (!star || busy || WishboundIntro.IsPlaying) { if (promptGroup) promptGroup.alpha = Mathf.MoveTowards(promptGroup.alpha, 0, Time.deltaTime * 3); return; }
+        if (!star || busy || CutsceneDirector.Active || WishboundIntro.IsPlaying) { if (promptGroup) promptGroup.alpha = Mathf.MoveTowards(promptGroup.alpha, 0, Time.deltaTime * 3); return; }
         bool show = false;
         if (!inside)
         {
             var d = NearestDoor(star.position);
             if (d != null && Vector3.Distance(Flat(d.point), Flat(star.position)) < doorRadius && Mathf.Abs(d.point.y - star.position.y) < 2.5f)
             {
-                show = true; prompt.text = promptText;
+                show = true; prompt.text = "E  -  " + promptText;
                 if (StarInput.ReachPressed) StartCoroutine(Enter(d));
             }
         }
         else if (InteriorScene.Active && InteriorScene.Active.NearExit(star.position))
         {
-            show = true; prompt.text = "leave";
+            show = true; prompt.text = "E  -  leave";
             if (StarInput.ReachPressed) StartCoroutine(Exit());
         }
         promptGroup.alpha = Mathf.MoveTowards(promptGroup.alpha, show ? 1 : 0, Time.deltaTime * 3);
@@ -129,6 +130,7 @@ public class HouseEntrances : MonoBehaviour
 
     public IEnumerator Enter(Door d)
     {
+        if (busy || inside || d == null || !star) yield break;
         busy = true; current = d;
         returnPoint = d.point + d.outward * 1.2f; returnYaw = Quaternion.LookRotation(d.outward).eulerAngles.y;
         yield return FadeTo(1, .6f);
@@ -137,18 +139,20 @@ public class HouseEntrances : MonoBehaviour
         while (!op.isDone) yield return null;
         yield return null;
         var interior = InteriorScene.Active;
-        if (interior)
+        if (interior && interior.spawn)
         {
+            inside = true;
             MoveParty(interior.spawn.position, interior.spawn.eulerAngles.y);
             interior.OnEntered();
         }
-        inside = true;
+        if (!inside) { Debug.LogError("[HouseEntrances] Interior has no valid spawn."); yield return SceneManager.UnloadSceneAsync(d.type.interiorScene); }
         yield return FadeTo(0, .6f);
         busy = false;
     }
 
     public IEnumerator Exit()
     {
+        if (busy || !inside) yield break;
         busy = true;
         yield return FadeTo(1, .6f);
         var interior = InteriorScene.Active;

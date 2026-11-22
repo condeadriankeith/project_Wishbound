@@ -12,6 +12,7 @@ public class VillageGrassClearer : MonoBehaviour
     [Tooltip("Extra metres around every prop / plot footprint.")] public float margin = 0.45f;
     [Tooltip("Extra metres around the pond edge and well.")] public float waterMargin = 1.0f;
     [Tooltip("Half-width (m) cleared along footpaths.")] public float pathHalfWidth = 1.25f;
+    [Tooltip("Metres cleared around every house footprint (doorstep, porch).")] public float houseMargin = 1.1f;
     [Tooltip("Ignore renderers wider than this (ground slabs, big terrain pieces).")] public float maxPropSize = 14f;
     public bool cleared { get; private set; }
 
@@ -48,6 +49,21 @@ public class VillageGrassClearer : MonoBehaviour
 
     void Gather(VillageDressing vd)
     {
+        // every house (and so its interior) lives inside its combined renderer bounds: no grass there
+        foreach (var lg in FindObjectsByType<LODGroup>(FindObjectsSortMode.None))
+        {
+            if (!lg.name.Contains("House")) continue;
+            var rs = lg.GetComponentsInChildren<Renderer>(true); if (rs.Length == 0) continue;
+            var hb = rs[0].bounds; for (int i = 1; i < rs.Length; i++) hb.Encapsulate(rs[i].bounds);
+            AddBox(hb, houseMargin); GrassExclusions.AddInterior(hb);
+        }
+        foreach (var tr in FindObjectsByType<Transform>(FindObjectsSortMode.None))
+        {
+            if ((!tr.name.Contains("MedievalHouse") && tr.name != "WeatheredCottage") || (tr.parent && tr.parent.name.Contains("MedievalHouse"))) continue;
+            var rs = tr.GetComponentsInChildren<MeshRenderer>(true); if (rs.Length == 0) continue;
+            Bounds bounds = rs[0].bounds; foreach (var r in rs) bounds.Encapsulate(r.bounds);
+            AddBox(bounds, houseMargin); GrassExclusions.AddInterior(bounds);
+        }
         foreach (Transform child in vd.transform)
         {
             string n = child.name;

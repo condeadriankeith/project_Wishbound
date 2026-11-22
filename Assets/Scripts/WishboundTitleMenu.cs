@@ -15,14 +15,13 @@ public sealed class WishboundTitleMenu : MonoBehaviour
         public Shadow[] glow; public Action action; public float heat;
     }
     readonly List<Choice> main = new List<Choice>(), settings = new List<Choice>();
-    readonly List<Image> motes = new List<Image>();
     RectTransform root, logo; CanvasGroup logoGroup, settingsGroup;
     Image fade, shade; IslandThirdPersonController player;
-    Font font; GuideWisp wisp; Camera wispCamera; RenderTexture wispTexture; RawImage wispImage;
-    Material additive; Sprite moteSprite; Texture2D moteTexture;
+    Font font;
     Vector2 cursor, rawPointer, previousPointer; int selected = -1;
     bool ready, busy, settingsOpen, pointerInitialized, keyboardSelection;
-    float menuAge;
+    float menuAge; bool claimed;
+    void Unclaim() { WispCursor.ScreenOverride = null; if (claimed) { claimed = false; WispCursor.Claims--; } }
     public bool PlayRequested { get; private set; }
     public bool Ready => ready;
     public bool SettingsOpen => settingsOpen;
@@ -54,7 +53,6 @@ public sealed class WishboundTitleMenu : MonoBehaviour
         foreach(var c in settings) c.group.alpha=1;
         settingsGroup.gameObject.SetActive(false); RefreshSettings();
         fade.transform.SetAsLastSibling();
-        SetupWisp(); BuildMotes();
     }
 
     Choice MakeChoice(string caption,Vector2 pos,Vector2 size,Action action,Transform parent)
@@ -73,37 +71,7 @@ public sealed class WishboundTitleMenu : MonoBehaviour
         var r=(RectTransform)go.transform;r.anchorMin=r.anchorMax=r.pivot=new Vector2(.5f,.5f);r.anchoredPosition=pos;r.sizeDelta=size;
         var image=go.GetComponent<Image>();image.color=color;image.raycastTarget=false;return image;
     }
-    void SetupWisp()
-    {
-        var source=FindFirstObjectByType<GuideWisp>();
-        var host=new GameObject("Title wisp - existing GuideWisp visuals"); wisp=host.AddComponent<GuideWisp>();
-        if(source){wisp.haloMaterial=source.haloMaterial;wisp.sparkMaterial=source.sparkMaterial;wisp.colour=source.colour;}
-        wisp.MenuMode=true;
-        var camObject=new GameObject("Title wisp camera");wispCamera=camObject.AddComponent<Camera>();
-        wispCamera.transform.position=new Vector3(10000,10000,-20);wispCamera.orthographic=true;wispCamera.orthographicSize=5.4f;
-        wispCamera.nearClipPlane=.1f;wispCamera.farClipPlane=40;wispCamera.cullingMask=1<<31;
-        wispCamera.clearFlags=CameraClearFlags.SolidColor;wispCamera.backgroundColor=Color.clear;wispCamera.allowHDR=false;wispCamera.allowMSAA=false;
-        var data=wispCamera.GetUniversalAdditionalCameraData();data.renderPostProcessing=false;data.renderShadows=false;
-        ResizeWispTexture();
-        var go=new GameObject("Wisp overlay",typeof(RectTransform),typeof(RawImage));go.transform.SetParent(transform,false);
-        var r=(RectTransform)go.transform;r.anchorMin=Vector2.zero;r.anchorMax=Vector2.one;r.offsetMin=r.offsetMax=Vector2.zero;
-        wispImage=go.GetComponent<RawImage>();wispImage.texture=wispTexture;wispImage.raycastTarget=false;
-        additive=new Material(Resources.Load<Shader>("WishMenuAdditive"));wispImage.material=additive;wispImage.color=Color.clear;
-    }
-    void ResizeWispTexture()
-    {
-        if(wispTexture){wispCamera.targetTexture=null;wispTexture.Release();Destroy(wispTexture);}
-        int h=Mathf.Min(Screen.height,1080),w=Mathf.RoundToInt(h*(float)Screen.width/Mathf.Max(1,Screen.height));
-        wispTexture=new RenderTexture(Mathf.Max(1,w),Mathf.Max(1,h),16,RenderTextureFormat.ARGB32);wispTexture.Create();wispCamera.targetTexture=wispTexture;
-        wispCamera.aspect=(float)w/Mathf.Max(1,h);if(wispImage)wispImage.texture=wispTexture;
-    }
-    void BuildMotes()
-    {
-        moteTexture=new Texture2D(32,32,TextureFormat.RGBA32,false);var pixels=new Color[1024];
-        for(int y=0;y<32;y++)for(int x=0;x<32;x++){float r=Vector2.Distance(new Vector2(x,y),new Vector2(15.5f,15.5f))/15.5f;pixels[y*32+x]=new Color(1,1,1,Mathf.Pow(Mathf.Clamp01(1-r),2));}
-        moteTexture.SetPixels(pixels);moteTexture.Apply();moteSprite=Sprite.Create(moteTexture,new Rect(0,0,32,32),Vector2.one*.5f);
-        for(int i=0;i<18;i++){var m=ImageAt("Wish spark",transform,Vector2.zero,Vector2.one*9,Color.clear);m.sprite=moteSprite;motes.Add(m);}
-    }
+
 
     public IEnumerator Present()
     {
@@ -118,7 +86,7 @@ public sealed class WishboundTitleMenu : MonoBehaviour
             yield return null;
         }
         foreach(var c in main)c.group.alpha=1;
-        ready=true;wispImage.color=Color.white;
+        ready=true;
     }
     void Update()
     {
@@ -156,43 +124,16 @@ public sealed class WishboundTitleMenu : MonoBehaviour
         Vector2 target=rawPointer;
         if(selected>=0) target=(Vector2)root.InverseTransformPoint(list[selected].rect.position)+new Vector2(-Mathf.Min(170,list[selected].text.preferredWidth*.5f+24),0);
         cursor=Vector2.Lerp(cursor,target,1-Mathf.Exp(-18*Time.unscaledDeltaTime));
-        DrawWisp(1);UpdateGlow();
+        WispCursor.ScreenOverride=RectTransformUtility.WorldToScreenPoint(null,root.TransformPoint(cursor));
         if(selected>=0 && ((mouse!=null && mouse.leftButton.wasPressedThisFrame)||(kb!=null && kb.enterKey.wasPressedThisFrame)))list[selected].action();
     }
-    void DrawWisp(float opacity)
-    {
-        if(!wisp || !wispCamera)return;
-        if(Mathf.Abs(wispCamera.aspect-(float)Screen.width/Mathf.Max(1,Screen.height))>.01f)ResizeWispTexture();
-        Vector3 screen=RectTransformUtility.WorldToScreenPoint(null,root.TransformPoint(cursor));
-        Vector3 at=wispCamera.ViewportToWorldPoint(new Vector3(screen.x/Screen.width,screen.y/Screen.height,20));
-        wisp.SetMenuPose(at,opacity);wispImage.color=new Color(1,1,1,opacity);
-    }
-    void UpdateGlow()
-    {
-        var list=Choices;
-        for(int i=0;i<list.Count;i++)
-        {
-            var c=list[i];c.heat=Mathf.Lerp(c.heat,selected==i?1:0,1-Mathf.Exp(-9*Time.unscaledDeltaTime));
-            c.text.color=Color.Lerp(Color.white,new Color(1,.89f,.57f),c.heat);c.rect.localScale=Vector3.one*(1+.045f*c.heat);
-            foreach(var shadow in c.glow)shadow.effectColor=new Color(1,.66f,.25f,c.heat*.65f);
-        }
-        for(int i=0;i<motes.Count;i++)
-        {
-            float age=Mathf.Repeat(menuAge*.45f+i*.618f,1),pulse=Mathf.Sin(age*Mathf.PI);
-            if(selected<0){motes[i].color=Color.clear;continue;}
-            var c=list[selected];Vector2 centre=root.InverseTransformPoint(c.rect.position);
-            float x=Mathf.Sin(i*17.13f)*Mathf.Min(240,c.text.preferredWidth*.55f);
-            motes[i].rectTransform.anchoredPosition=centre+new Vector2(x+Mathf.Sin(menuAge+i)*9,-12+age*70);
-            motes[i].rectTransform.sizeDelta=Vector2.one*(i%3==0?11:6)*pulse;
-            motes[i].color=new Color(1,.82f,.42f,pulse*c.heat*.8f);
-        }
-    }
+
     public void SelectPlay(){if(!ready || busy || settingsOpen)return;busy=true;PlayRequested=true;}
     public void OpenSettings(){ if(!ready||busy||settingsOpen)return; StartCoroutine(Morph(true)); }
     public void CloseSettings(){ if(!ready||busy||!settingsOpen)return; StartCoroutine(Morph(false)); }
     IEnumerator Morph(bool open)
     {
-        busy=true; selected=-1; foreach(var m in motes)m.color=Color.clear;
+        busy=true; selected=-1;
         var panel=(RectTransform)settingsGroup.transform;
         if(open){ RefreshSettings(); settingsGroup.alpha=0; settingsGroup.gameObject.SetActive(true); }
         const float D=.6f;
@@ -206,7 +147,7 @@ public sealed class WishboundTitleMenu : MonoBehaviour
             logoGroup.alpha=mainA; logo.localScale=Vector3.one*mainS;
             foreach(var c in main){c.group.alpha=mainA;c.rect.localScale=Vector3.one*mainS;}
             settingsGroup.alpha=setA; panel.localScale=Vector3.one*setS; panel.anchoredPosition=new Vector2(0,open?-28*(1-k):-28*k);
-            DrawWisp(1); yield return null;
+            yield return null;
         }
         settingsOpen=open;
         logoGroup.alpha=open?0:1; logo.localScale=Vector3.one;
@@ -227,25 +168,23 @@ public sealed class WishboundTitleMenu : MonoBehaviour
     public IEnumerator Dismiss()
     {
         busy=true;
-        for(float t=0;t<.9f;t+=Time.unscaledDeltaTime){float a=1-Ease(t/.9f);logoGroup.alpha=a;foreach(var c in main)c.group.alpha=a;shade.color=new Color(0,0,0,.22f*a);DrawWisp(a);foreach(var m in motes)m.color=Color.clear;yield return null;}
+        for(float t=0;t<.9f;t+=Time.unscaledDeltaTime){float a=1-Ease(t/.9f);logoGroup.alpha=a;foreach(var c in main)c.group.alpha=a;shade.color=new Color(0,0,0,.22f*a);yield return null;}
         logoGroup.alpha=0;foreach(var c in main)c.group.alpha=0;shade.color=Color.clear;ReleaseCursor();
     }
     public void SelectQuit()
     {
         if(!ready||busy||settingsOpen)return;
         busy=true;
-        foreach(var m in motes)m.color=Color.clear;
         // hand the wisp over, at its current spot beside QUIT, to the shared farewell sequence (input is dead from here on)
         Vector2 screen=RectTransformUtility.WorldToScreenPoint(null,root.TransformPoint(cursor));
         ReleaseCursor();
         Cursor.lockState=CursorLockMode.None;Cursor.visible=false;
         WishboundFarewell.Play(screen);
     }
-    public void ReleaseCursor(){ready=false;if(wispImage)wispImage.color=Color.clear;if(wispCamera)wispCamera.enabled=false;if(wisp)wisp.gameObject.SetActive(false);}
+    public void ReleaseCursor(){Unclaim();ready=false;}
     void OnDestroy()
     {
-        if(wisp)Destroy(wisp.gameObject);if(wispCamera){wispCamera.targetTexture=null;Destroy(wispCamera.gameObject);}
-        if(wispTexture){wispTexture.Release();Destroy(wispTexture);}if(additive)Destroy(additive);if(moteSprite)Destroy(moteSprite);if(moteTexture)Destroy(moteTexture);
+        Unclaim();
         if(!PlayRequested){Cursor.lockState=CursorLockMode.None;Cursor.visible=true;}
     }
 }

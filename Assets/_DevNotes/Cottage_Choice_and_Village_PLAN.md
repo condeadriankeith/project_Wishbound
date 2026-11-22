@@ -63,6 +63,24 @@ E (painterly look) + D (village kit: well hub → farms → paths → ponds) →
 - Farm plots / props are placed at runtime around the hamlet; grass can still poke through some kit pieces outside GrassExclusions.
 - Audio is synthesized placeholder.
 
+## Ordered mountain path (Cottage -> Summit)
+Build the Tether route as one continuous critical path, never a jump between unrelated waypoints:
+
+1. **Cottage exit** - finish the blessing/cottage choice, return the camera to Explore, and let the Child take the lead.
+2. **Dusk-Ferry parcel** - place the parcel on the first main-road point beyond the cottage and immediately teach parcel carry plus shadow-dimming. It stays within the hamlet/foothill edge.
+3. **River crossing** - use six-to-eight stepping stones between the ferry and the next foothill road point. The bridge disappears while not dimmed, teaches failure-safe timing, and reuses one close-up reward cutscene.
+4. **Frost-Locked Seedbed** - advance along the main road to the terraced slope. Teach prism aim first, then pulse-clear vines, then collect/haul water. One complete seedbed is the reward.
+5. **Overlook Bench** - continue on the main road to the existing summit. A low side camera and a hold-Reach beat grant the last fragment.
+6. **Tether ending** - show the fragment joining the Star, restore the playable state on the overlook, and leave the character at the summit.
+
+The Roots route shares the cottage and summit but remains intentionally more intimate:
+
+1. **Hearth and hangouts** - warm village soil, stack pebbles, skip stones, and listen in the village.
+2. **Whisper Canyon** - enter the canyon after the village beats. Ground-slam the sealed floor and light the local mural.
+3. **Observatory wish** - carry the story to the summit, show the Child's wish, walk away from the beam, break the altar, and walk home hand in hand.
+
+AAA production gate: blockout and movement reachability first; authored dressing and cinematography only after all six Tether beats are reachable with no soft-lock. Each later beat may reuse village, road, and cutscene systems but must have a distinct landmark, one mechanic, and one reward/cutscene.
+
 ## Where things live
 - Camera profiles: IsoCameraRig.Profile / SetProfile, CameraProfileZone
 - Star state: StarRadiance (StoryFoundations.cs), StarOrbFX state fields; StoryFlags; StarInput (F hold / E press)

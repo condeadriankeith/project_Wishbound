@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>Curious companion. Following always takes priority over optional play.</summary>
@@ -12,6 +12,8 @@ public class ProceduralFollow : MonoBehaviour
     public float arriveRadius = .3f, resumeRadius = .9f;
     [Header("Speed (m/s)")]
     public float minChaseSpeed = 3.5f, maxSpeed = 14f, catchUpGain = 1.5f;
+    [Tooltip("Constant walking pace used while simply following (Follow/CatchUp). The child never speeds up to compensate for distance; it can be left behind if the target moves faster than this.")]
+    public float constantWalkSpeed = 3.2f;
     public float arriveGain = 4f, smoothTime = .22f;
     [Header("Life")]
     public float swayAmplitude = .45f, swayFrequency = 1.6f, slotTurnRate = 3f;
@@ -52,6 +54,14 @@ public class ProceduralFollow : MonoBehaviour
     static Vector3 Flat(Vector3 v) { v.y=0; return v; }
     float RandomRange(float a,float b) => Mathf.Lerp(a,b,(float)rng.NextDouble());
 
+    // Re-entering Follow after being disabled (e.g. during a cutscene) must not produce a burst of speed:
+    // reset the stale target-velocity tracking so the next frame doesn't see a huge apparent target jump.
+    void OnEnable()
+    {
+        hVel=hAcc=tVel=Vector3.zero; tSpeed=0; chasing=false; stuckTime=0;
+        if(target){lastTargetPos=target.position;}
+        ScheduleDecision();
+    }
     void Awake()
     {
         cc=GetComponent<CharacterController>(); cc.minMoveDistance=0;
@@ -180,7 +190,10 @@ public class ProceduralFollow : MonoBehaviour
             for(int i=0;i<5;i++)
             {
                 float angle=RandomRange(0,Mathf.PI*2);
-                var p=target.position+new Vector3(Mathf.Cos(angle),0,Mathf.Sin(angle))*RandomRange(idleDistance+ .4f,3.8f);
+                // Pick a spot clearly away from where the child already is, not just from the target,
+                // so an idle wander doesn't just nudge back and forth over the same couple of metres.
+                var p=target.position+new Vector3(Mathf.Cos(angle),0,Mathf.Sin(angle))*RandomRange(idleDistance+1.2f,3.8f);
+                if(Flat(p-transform.position).sqrMagnitude<1f)continue; // too close to current spot: not worth a trip
                 if(!SafeGoal(p,out interestGoal))continue;
                 Enter(Behaviour.Explore,RandomRange(attentionSpan.x,attentionSpan.y));PlayEpisodes++;return;
             }
@@ -249,7 +262,16 @@ public class ProceduralFollow : MonoBehaviour
         {
             if(TryRecover()){RecoveryWarps++;EndPlay();}return;
         }
-        ScanTrees();ChooseBehaviour(separation,moving);
+                // Ground sanity check: if something moved the real terrain out from under the character since it was
+        // placed (e.g. the comet crater's collider finishing its rebuild while the child stands nearby), snap
+        // back onto the true surface in one step instead of letting gravity fight it frame by frame, which is
+        // what produced the visible upward glitch / sink-through.
+        if(TerrainProbe.TryGetGroundY(transform.position.x,transform.position.z,out float groundY))
+        {
+            float feetY=transform.position.y-cc.height*.5f+cc.center.y-cc.skinWidth;
+            if(Mathf.Abs(feetY-groundY)>.6f)Warp(new Vector3(transform.position.x,groundY+.05f+cc.height*.5f-cc.center.y,transform.position.z));
+        }
+ScanTrees();ChooseBehaviour(separation,moving);
         if(moving)slotDir=Vector3.Slerp(slotDir,-tVel.normalized,1-Mathf.Exp(-slotTurnRate*dt)).normalized;
         else if(away.sqrMagnitude>.04f)slotDir=away.normalized;
         Vector3 side=Vector3.Cross(Vector3.up,slotDir);
@@ -268,13 +290,17 @@ public class ProceduralFollow : MonoBehaviour
         float d=Flat(goal-transform.position).magnitude;
         bool playMove=CurrentBehaviour==Behaviour.Explore || CurrentBehaviour==Behaviour.Hide || CurrentBehaviour==Behaviour.Peek;
         if(moving || playMove)chasing=d>(playMove?.16f:.12f);
+        // Wider hysteresis while the target is stationary: settle into the idle slot once close enough
+        // instead of endlessly re-triggering small corrective walks (which reads as pacing back and forth).
         else if(!chasing && d>resumeRadius)chasing=true;
-        else if(chasing && d<arriveRadius)chasing=false;
+        else if(chasing && d<arriveRadius*1.6f)chasing=false;
         Vector3 desired=Vector3.zero;
         if(chasing && d>.001f && (Time.time>reactionUntil || separation>catchUpDistance || playMove))
         {
-            float cap=Mathf.Clamp(Mathf.Max(minChaseSpeed,tSpeed*1.05f)+Mathf.Max(0,separation-followDistance)*catchUpGain,0,maxSpeed);
-            cap*=pace*(.94f+.06f*Mathf.Sin(Time.time*2.1f+personality));
+            // Constant walk pace: the child never speeds up to chase harder when the gap grows.
+            // If the target moves faster than this, the child is simply left behind (CatchUp just keeps walking toward them).
+            float cap=constantWalkSpeed*pace*(.94f+.06f*Mathf.Sin(Time.time*2.1f+personality));
+            if(CurrentBehaviour==Behaviour.CatchUp)cap=Mathf.Min(cap,maxSpeed); // still never exceeds the walk pace, just keeps heading toward the (possibly distant) goal
             if(playMove)cap=CurrentBehaviour==Behaviour.Peek?.85f:2.1f*pace;
             desired=Flat(goal-transform.position)/d*Mathf.Min(cap,d*arriveGain);
             if(moving && !playMove && CurrentBehaviour!=Behaviour.Watch)desired+=tVel*.8f;

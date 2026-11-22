@@ -71,7 +71,7 @@ public class GhibliBatch
     /// <param name="maxDist">chunks farther than this are skipped</param>
     /// <param name="nearDist">beyond this distance the thinned far array is drawn (if one exists)</param>
     /// <param name="keepDist">chunks within this distance are drawn even when off-screen (so shadows never pop)</param>
-    public void Draw(Vector3 camPos, Plane[] planes, float maxDist, float nearDist, float keepDist)
+    public void Draw(Vector3 camPos, Plane[] planes, float maxDist, float nearDist, float keepDist, Camera camera = null)
     {
         if (mesh == null || mats == null || chunks.Count == 0) return;
         float maxD2 = maxDist * maxDist, nearD2 = nearDist * nearDist, keepD2 = keepDist * keepDist;
@@ -89,7 +89,7 @@ public class GhibliBatch
             {
                 var mat = mats[Mathf.Min(s, mats.Length - 1)];
                 if (mat == null) continue;
-                Graphics.DrawMeshInstanced(mesh, s, mat, arr, n, null, shadows, true);
+                Graphics.DrawMeshInstanced(mesh, s, mat, arr, n, null, shadows, true, 0, camera);
             }
         }
     }

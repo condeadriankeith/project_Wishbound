@@ -186,7 +186,7 @@ public class IslandThirdPersonController : MonoBehaviour
         float dt = Mathf.Min(Time.deltaTime, 0.05f);
 
         // ---- cursor capture: Esc releases, click recaptures
-        if (kb != null && kb.escapeKey.wasPressedThisFrame) SetCursorLocked(false);
+        if (kb != null && kb.escapeKey.wasPressedThisFrame && !CutsceneSkip.JustFired) SetCursorLocked(false);
         else if (ms != null && ms.leftButton.wasPressedThisFrame && !LivingDayNight.PointerOverPanel && Cursor.lockState != CursorLockMode.Locked) SetCursorLocked(true);
         bool locked = Cursor.lockState == CursorLockMode.Locked;
 

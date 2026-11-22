@@ -20,8 +20,8 @@ public class WishboundIntro : MonoBehaviour
     public bool playInEditor = true;
     [Tooltip("Builds: play only on the first launch.")]
     public bool onlyFirstLaunchInBuilds = true;
-    [Tooltip("Debug: press F1 during the intro to skip straight to gameplay.")]
-    public bool allowDebugSkip = true;
+    
+    
 
     [Header("Scene references (auto-found when empty)")]
     public IslandThirdPersonController player;
@@ -154,7 +154,7 @@ public class WishboundIntro : MonoBehaviour
     }
 
     bool hitStopActive;
-    void OnDestroy() { WideView(false); if (hitStopActive) Time.timeScale = 1f; if (Instance == this) Instance = null; IsPlaying = false; BeachCometCrater.IntroPending = false; }
+    void OnDestroy() { WideView(false); if (hitStopActive) Time.timeScale = 1f; if (Instance == this) Instance = null; IsPlaying = false; BeachCometCrater.IntroPending = false; CutsceneSkip.End(); }
 
     void Resolve()
     {
@@ -175,6 +175,7 @@ public class WishboundIntro : MonoBehaviour
         yield return null;
         Cursor.lockState = CursorLockMode.None; Cursor.visible = false;
         WishboundSettings.Apply(player);
+        CutsceneSkip.Begin(() => skipRequested = true);
         if (returningLaunch)
         {
             if (crater && !crater.Revealed) crater.Reveal(false);
@@ -223,11 +224,10 @@ public class WishboundIntro : MonoBehaviour
 
     void Update()
     {
-        if (allowDebugSkip && IsPlaying && Keyboard.current != null && Keyboard.current.f1Key.wasPressedThisFrame) skipRequested = true;
         if (IsPlaying && !shafts) { var a = GameObject.Find("Atmosphere"); var t = a ? a.transform.Find("Shafts") : null; if (t) { shafts = t.gameObject; shafts.SetActive(false); } }
 
         // ESC pause during gameplay (after intro finishes)
-        if (!IsPlaying && player && player.enabled && Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
+        if (!IsPlaying && !CutsceneSkip.JustFired && player && player.enabled && Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
         {
             PauseMenu.Toggle();
         }
@@ -919,6 +919,7 @@ IEnumerator Shot4()
     IEnumerator ShowTitleMenu()
     {
         SequencePhase = "Title";
+        CutsceneSkip.Suppressed = true;   // Esc belongs to the title menu
         Dof(false); promptGroup.alpha = 0;
         titleRect.anchorMin = titleRect.anchorMax = new Vector2(.5f,.5f);
         titleRect.anchoredPosition = Vector2.zero;
@@ -933,6 +934,7 @@ IEnumerator Shot4()
         }
         if (!skipRequested) { OneShot(awakenTone,.5f); yield return titleMenu.Dismiss(); }
         else titleMenu.ReleaseCursor();
+        CutsceneSkip.Suppressed = false;
     }
 
     class VignettePlan { public string kind; public Vector3 land, cam, look; public Transform house; public GameObject prop; public Light propLight; public Renderer glowRenderer; public Transform curtain, villager; }
@@ -1409,6 +1411,7 @@ static Vector3 Bezier(Vector3 a, Vector3 b, Vector3 c, float t) { float u = 1 - 
         // HYPERLAPSE: slow wind-up, a banking swoop straight at the star with FOV warp, chroma + bloom surge and shake, then a soft landing on the third-person camera
         for (float t = 0; t < hb; t += Time.deltaTime)
         {
+            if (skipRequested && t < hb - .05f) t = hb - .05f;   // skip: jump to the end of the swoop
             float u = Mathf.Clamp01(t / hb);
             float ke = Mathf.Pow(Ease(u), 1.35f);
             float rush = Mathf.Sin(u * Mathf.PI), rush2 = rush * rush;
@@ -1438,6 +1441,7 @@ static Vector3 Bezier(Vector3 a, Vector3 b, Vector3 c, float t) { float u = 1 - 
         introCam.Priority = -1000; yield return null; yield return null;   // poses match, so this cut is invisible
         if (player && !player.enabled) HandOverControl();
         if (brain) brain.DefaultBlend = savedBlend;
+        CutsceneSkip.End();
         IsPlaying = false; SequencePhase = "Gameplay";
         if (shafts) shafts.SetActive(true);
         if (!Application.isEditor) { PlayerPrefs.SetInt("Wishbound.IntroSeen", 1); PlayerPrefs.Save(); }
@@ -1480,6 +1484,7 @@ static Vector3 Bezier(Vector3 a, Vector3 b, Vector3 c, float t) { float u = 1 - 
 
         // Show title menu again
         SequencePhase = "Title";
+        CutsceneSkip.Suppressed = true;   // Esc belongs to the title menu
         Dof(false);
         if (promptGroup) promptGroup.alpha = 0;
         if (titleRect)
@@ -1526,6 +1531,7 @@ static Vector3 Bezier(Vector3 a, Vector3 b, Vector3 c, float t) { float u = 1 - 
     {
         skipRequested = false;
         awakenRequested = false;
+        CutsceneSkip.Begin(() => skipRequested = true);
         SequencePhase = "Grass";
         yield return Shot1();
         if (!skipRequested) { Pose(s2Cam.position, s2Cam.rotation, 30f); yield return null; }

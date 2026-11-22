@@ -31,8 +31,10 @@ public static class SettlerTools
                 }
                 break;
             case "hoe":
-                P("Shaft", VillageKit.Ring(6, 0), wood, new Vector3(0, -.65f, .55f), new Vector3(.03f, 1.1f, .03f), new Vector3(-40, 0, 0));
-                P("Blade", box, iron, new Vector3(0, -.65f, .55f), new Vector3(.18f, .02f, .14f), new Vector3(0, 0, 0)); break;
+                // Carried on the shoulder: shaft rests across the back, blade over the far shoulder (Images 1 & 2).
+                P("Shaft", VillageKit.Ring(6, 0), wood, new Vector3(0, -.55f, .45f), new Vector3(.035f, 1.25f, .035f), new Vector3(-25, 0, 0));
+                P("Blade", box, iron, new Vector3(0, -.55f, .45f), new Vector3(.22f, .03f, .16f), new Vector3(0, 0, 0));
+                P("ShoulderPad", box, VillageKit.Mat(new Color(.5f, .38f, .26f)), new Vector3(0, -.08f, .62f), new Vector3(.3f, .06f, .3f), new Vector3(0, 15, 0)); break;
             case "can":
                 P("Can", VillageKit.Ring(10, 0), VillageKit.Mat(new Color(.4f, .55f, .62f)), new Vector3(0, -.25f, .05f), new Vector3(.14f, .2f, .14f), Vector3.zero);
                 P("Spout", VillageKit.Ring(6, 0), VillageKit.Mat(new Color(.4f, .55f, .62f)), new Vector3(0, -.12f, .2f), new Vector3(.025f, .25f, .025f), new Vector3(55, 0, 0)); break;

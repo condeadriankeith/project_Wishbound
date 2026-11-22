@@ -7,7 +7,7 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: mat_Ghibli-ToonLit_834C57_000000_0.25
+  m_Name: Kit RGBA(0.513, 0.298, 0.340, 1.000)RGBA(0.000, 0.000, 0.000, 0.000)0.250.12
   m_Shader: {fileID: 4800000, guid: a8e75ce96adf40c4fb1fad209548cd37, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0

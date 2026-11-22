@@ -106,6 +106,7 @@ public class IslandStylizedFlowers : MonoBehaviour
             if (patch < patchThreshold) continue;
             if (rng.NextDouble() > inPatchDensity) continue;
 
+            if (GrassExclusions.Contains(x, z)) continue;
             float h = Hm(x, z);
             if (h < minHeight || h > maxHeight) continue;
             float normalY = NV(x, z).y;   // one accurate analytic-normal check at the candidate point
@@ -131,6 +132,7 @@ public class IslandStylizedFlowers : MonoBehaviour
 
         for (int i = 0; i < np; i++)
         {
+            lists[i].RemoveAll(m => GrassExclusions.Contains(m.m03, TerrainMath.MirrorZ ? -m.m23 : m.m23));
             if (lists[i].Count == 0) continue;
             var pc = natureSet.flowers[i];
             var b = new GhibliBatch(pc.mesh, pc.materials) { shadows = UnityEngine.Rendering.ShadowCastingMode.Off };

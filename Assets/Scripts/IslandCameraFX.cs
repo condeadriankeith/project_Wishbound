@@ -66,7 +66,7 @@ void Awake()
     void Update()
     {
         Shader.SetGlobalFloat(TiltId, tiltShift ? 1f : 0f);
-        tiltNow = Mathf.Lerp(tiltNow, TiltGoal, 1f - Mathf.Exp(-3f * Time.unscaledDeltaTime));
+        tiltNow = Mathf.Lerp(tiltNow, CutsceneDirector.Active ? 0f : TiltGoal, 1f - Mathf.Exp(-3f * Time.unscaledDeltaTime));
         Shader.SetGlobalFloat(StrengthId, tiltNow);
     }
 

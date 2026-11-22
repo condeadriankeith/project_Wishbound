@@ -52,14 +52,14 @@ public static class InteriorDesigns
         var r = new Room { root = root, rng = new System.Random(seed + (int)style * 17), box = VillageKit.ChamferBox(.08f), boxSoft = VillageKit.ChamferBox(.25f) };
         switch (style)
         {
-            case InteriorBuilder.Style.MedievalHouse: r.W = 6.4f; r.D = 7.2f; r.H = 3.1f; Shell(r, Plaster, Plank); Baker(r); break;
-            case InteriorBuilder.Style.SmallMedievalHouse: r.W = 5.2f; r.D = 5f; r.H = 2.8f; Shell(r, new Color(.62f, .6f, .5f), PlankD); Herbalist(r); break;
-            case InteriorBuilder.Style.TwoStoryMedievalHouse: r.W = 6.8f; r.D = 6.8f; r.H = 3.0f; Shell(r, new Color(.7f, .64f, .58f), Plank); Weaver(r); break;
-            default: r.W = 5.6f; r.D = 5.6f; r.H = 2.9f; Shell(r, new Color(.58f, .62f, .64f), PlankD); Fisher(r); break;
+            case InteriorBuilder.Style.MedievalHouse: r.W = 9.2f; r.D = 10.2f; r.H = 3.4f; Shell(r, Plaster, Plank); Baker(r); break;
+            case InteriorBuilder.Style.SmallMedievalHouse: r.W = 7.8f; r.D = 7.6f; r.H = 3.1f; Shell(r, new Color(.62f, .6f, .5f), PlankD); Herbalist(r); break;
+            case InteriorBuilder.Style.TwoStoryMedievalHouse: r.W = 9.6f; r.D = 9.6f; r.H = 3.3f; Shell(r, new Color(.7f, .64f, .58f), Plank); Weaver(r); break;
+            default: r.W = 8.4f; r.D = 8.4f; r.H = 3.2f; Shell(r, new Color(.58f, .62f, .64f), PlankD); Fisher(r); break;
         }
         // spawn + exit at the door (+Z)
         var sc = root.GetComponent<InteriorScene>() ?? root.gameObject.AddComponent<InteriorScene>();
-        var spawn = new GameObject("Spawn").transform; spawn.SetParent(root, false); spawn.localPosition = new Vector3(0, .1f, r.D / 2 - 1.3f); spawn.localRotation = Quaternion.Euler(0, 180, 0);
+        var spawn = new GameObject("Spawn").transform; spawn.SetParent(root, false); spawn.localPosition = new Vector3(0, .1f, r.D / 2 - 2.8f); spawn.localRotation = Quaternion.Euler(0, 180, 0);
         var exit = new GameObject("Exit").transform; exit.SetParent(root, false); exit.localPosition = new Vector3(0, 0, r.D / 2 - .45f);
         sc.spawn = spawn; sc.exit = exit;
         var cut = root.GetComponent<InteriorCutaway>() ?? root.gameObject.AddComponent<InteriorCutaway>();

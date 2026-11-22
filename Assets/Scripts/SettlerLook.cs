@@ -39,6 +39,7 @@ public static class SettlerLook
     }
 
     // Stable per-character variation, with a readable palette and silhouette for each occupation.
+    // Farmers: chunky, straw hat, plaid check shirt under dungaree overalls with suspenders, beard, brown boots.
     public static void DressForRole(Outfit o, SettlerBrain.Role role, System.Random rng)
     {
         o.role = role;
@@ -46,10 +47,16 @@ public static class SettlerLook
         o.build = Mathf.Lerp(.9f, 1.12f, (float)rng.NextDouble());
         o.hairstyle = rng.Next(3);
         o.strawHat = o.cap = o.scarf = o.bun = o.apron = false;
+        o.beard = o.moustache = false;
         switch (role)
         {
             case SettlerBrain.Role.Farmer:
-                o.strawHat = true; o.apron = true; o.jacket = new Color(.67f,.34f,.18f); o.apronColor = new Color(.3f,.36f,.49f); break;
+                // Plaid check shirt (jacket = shirt colour here), dungaree overalls, straw hat, beard.
+                o.strawHat = true; o.apron = true; o.beard = true;
+                o.shirt = new Color(.78f, .84f, .82f);          // light plaid base
+                o.jacket = new Color(.63f, .73f, .73f);          // plaid check cross-hatch read via the bib/straps
+                o.apronColor = new Color(.55f, .38f, .24f);      // dungaree brown
+                break;
             case SettlerBrain.Role.Gardener:
                 o.scarf = true; o.apron = true; o.jacket = new Color(.3f,.48f,.32f); o.apronColor = new Color(.83f,.70f,.46f); break;
             case SettlerBrain.Role.Fisher:
@@ -61,8 +68,9 @@ public static class SettlerLook
             case SettlerBrain.Role.Kid:
                 o.cap = rng.NextDouble() < .5; o.jacket = Color.Lerp(o.jacket, new Color(.94f,.65f,.24f), .55f); break;
         }
-        o.jacket = Color.Lerp(o.jacket, o.shirt, .15f);
-        o.trousers = new Color(.24f,.25f,.29f);
+        if (o.jacket != default) o.jacket = Color.Lerp(o.jacket, o.shirt, .15f);
+        o.trousers = new Color(.30f, .26f, .18f);   // earthy brown trousers
+        o.hatColor = rng.NextDouble() < .5 ? new Color(.88f, .74f, .45f) : new Color(.70f, .55f, .30f);
     }
 
     /// <summary>Build a fitted NPC wardrobe on its own rig; template is retained for call compatibility.</summary>

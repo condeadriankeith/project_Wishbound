@@ -148,7 +148,7 @@ public class SettlerBrain : MonoBehaviour
     {
         rig.pose = pose;
         for (float t = 0; t < seconds && (!Busy || CurrentJob != null); t += Time.deltaTime) yield return null;
-        if (!Busy || CurrentJob != null) rig.pose = riding ? SettlerRig.Pose.PullCart : SettlerRig.Pose.Idle;
+        if (!Busy || CurrentJob != null) rig.pose = tool != null ? SettlerRig.Pose.ShoulderCarry : (riding ? SettlerRig.Pose.PullCart : SettlerRig.Pose.Idle);
     }
 
     // ================================================================== daily life
@@ -277,9 +277,10 @@ public class SettlerBrain : MonoBehaviour
     IEnumerator JobTill(Job job)
     {
         if (!job.plot) yield break;
+        Face(job.plot.transform.position); HoldTool("hoe");   // carry hoe on shoulder while approaching
         yield return WalkToBusy(job.plot.WorkSpot(transform.position, rng));
         if (!arrived) { jobFailed=true; yield break; }
-        Face(job.plot.transform.position); HoldTool("hoe");
+        Face(job.plot.transform.position);
         yield return Do(SettlerRig.Pose.Dig, R(3, 5));
         HoldTool(null);
         if (job.plot) job.plot.Till();
@@ -287,10 +288,12 @@ public class SettlerBrain : MonoBehaviour
     IEnumerator JobSow(Job job)
     {
         if (!job.plot) yield break;
+        Face(job.plot.transform.position); HoldTool("hoe");
         yield return WalkToBusy(job.plot.WorkSpot(transform.position, rng));
         if (!arrived) { jobFailed=true; yield break; }
         Face(job.plot.transform.position);
         yield return Do(SettlerRig.Pose.Sow, R(2, 3.5f));
+        HoldTool(null);
         if (job.plot) job.plot.Sow();
     }
     IEnumerator JobWater(Job job)
@@ -306,19 +309,23 @@ public class SettlerBrain : MonoBehaviour
             yield return Do(SettlerRig.Pose.Crouch, 2.2f);
             while (vw.Well.Drawing) yield return null;
         }
+        Face(job.plot.transform.position); HoldTool("can");   // carry watering can while approaching
         yield return WalkToBusy(job.plot.WorkSpot(transform.position, rng));
         if (!arrived) { jobFailed=true; yield break; }
-        Face(job.plot.transform.position); HoldTool("can");
+        Face(job.plot.transform.position);
         yield return Do(SettlerRig.Pose.Water, R(3, 5));
+        HoldTool(null);
         if (job.plot) job.plot.Water(.6f);
     }
     IEnumerator JobHarvest(Job job)
     {
         if (!job.plot) yield break;
+        Face(job.plot.transform.position); HoldTool("hoe");
         yield return WalkToBusy(job.plot.WorkSpot(transform.position, rng));
         if (!arrived) { jobFailed=true; yield break; }
         Face(job.plot.transform.position);
         yield return Do(SettlerRig.Pose.PickUp, R(2, 4));
+        HoldTool(null);
         if (!job.plot) yield break;
         int q = job.plot.Harvest();
         if (q > 0 && community)
@@ -670,16 +677,18 @@ public class SettlerBrain : MonoBehaviour
     IEnumerator Do2(SettlerRig.Pose pose, float s) { rig.pose = pose; yield return new WaitForSeconds(s); rig.pose = SettlerRig.Pose.Idle; }
 
     // ================================================================== helpers
-    public void Say(string line, float seconds = 2.4f) { SpeechBubble.Say(transform, line, seconds, height + .35f); }
+    public void Say(string line, float seconds = 2.4f) { WhisperLine.Show(transform, line, seconds, height + .35f); }
     string Pick(params string[] a) => a[rng.Next(a.Length)];
 
     void HoldTool(string kind)
     {
         if (tool) { tool.SetActive(false); Destroy(tool); tool = null; }
-        if (kind == null) return;
+        if (kind == null) { rig.pose = riding ? SettlerRig.Pose.PullCart : SettlerRig.Pose.Idle; return; }
         Transform hand = null; foreach (var t in GetComponentsInChildren<Transform>()) if (t.name == "hand.R") hand = t;
         if (!hand) return;
         tool = SettlerTools.Make(kind, hand);
+        // idle carry: a hoe rests on the shoulder (Images 1 & 2), anything else is held at the chest
+        rig.pose = kind == "hoe" ? SettlerRig.Pose.ShoulderCarry : SettlerRig.Pose.Carry;
     }
 
     void HoldCargo(Res resource, int quantity)

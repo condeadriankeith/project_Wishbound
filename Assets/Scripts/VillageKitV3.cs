@@ -241,8 +241,10 @@ public static partial class VillageKit
                 if (stoneBorder) Part("Pillar", Blob(rng.Next(), .15f, 4, 7), stoneL, tr, c + Vector3.up * .32f, Quaternion.Euler(0, R(rng, 0, 360), 0), new Vector3(.24f, .36f, .24f));
                 else
                 {
-                    Part("CornerPost", box, borderD, tr, c + Vector3.up * .32f, id, new Vector3(.2f, .64f, .2f));
-                    Part("PostCap", Blob(rng.Next(), .08f, 3, 6), borderD, tr, c + Vector3.up * .66f, id, new Vector3(.13f, .08f, .13f));
+                    // Tall, chunky fence posts with rounded caps (Images 3 & 4 style).
+                    Part("CornerPost", box, borderD, tr, c + Vector3.up * .55f, id, new Vector3(.22f, 1.1f, .22f));
+                    Part("PostCap", Blob(rng.Next(), .06f, 4, 7), borderD, tr, c + Vector3.up * 1.18f, id, new Vector3(.16f, .10f, .16f));
+                    Part("PostRing", box, borderD, tr, c + Vector3.up * 1.02f, id, new Vector3(.26f, .04f, .26f));
                 }
             }
 
@@ -290,7 +292,68 @@ public static partial class VillageKit
         icons.AddComponent<FaceCamera>();
         state.iconWater = Icon(icons.transform, 0); state.iconTill = Icon(icons.transform, 1); state.iconSow = Icon(icons.transform, 2); state.iconCheck = Icon(icons.transform, 3);
         state.sign = sign.transform;
+
+        // ---- water pump (Images 3 & 4) - hand pump beside the plot
+        AddWaterPump(tr, new Vector3(hx + 1.1f, 0, hz + .7f), rng);
+        // ---- stump with axe stuck in it (Image 3)
+        AddStumpWithAxe(tr, new Vector3(-hx - .9f, 0, -hz - .9f), rng);
+
         return root;
+    }
+
+    // ------------------------------------------------------------------ pump & stump helpers
+    static void AddWaterPump(Transform parent, Vector3 lp, System.Random rng)
+    {
+        var pump = new GameObject("WaterPump"); pump.transform.SetParent(parent, false);
+        pump.transform.localPosition = lp;
+        var iron = Mat(new Color(.55f, .45f, .35f), new Color(.25f, .18f, .12f), .2f, .15f);
+        var redIron = Mat(new Color(.62f, .2f, .22f), new Color(.3f, .1f, .12f), .2f, .15f);
+        var wood = Mat(new Color(.5f, .38f, .26f));
+        var id = Quaternion.identity;
+        var box = ChamferBox(.18f);
+        // base
+        Part("PumpBase", box, iron, pump.transform, new Vector3(0, .12f, 0), id, new Vector3(.45f, .22f, .45f));
+        // vertical column
+        Part("PumpColumn", box, redIron, pump.transform, new Vector3(0, .62f, 0), id, new Vector3(.12f, 1.05f, .12f));
+        // spout
+        Cyl(pump.transform, "PumpSpout", iron, new Vector3(.18f, 1.05f, 0), new Vector3(.55f, 1.05f, 0), .04f, 6);
+        // handle pivot
+        Part("PumpPivot", box, iron, pump.transform, new Vector3(0, 1.55f, 0), id, new Vector3(.10f, .10f, .10f));
+        // handle arm (angled up)
+        Cyl(pump.transform, "PumpHandle", redIron, new Vector3(0, 1.55f, 0), new Vector3(-.45f, 2.05f, 0), .045f, 6);
+        Part("HandleGrip", box, wood, pump.transform, new Vector3(-.45f, 2.12f, 0), id, new Vector3(.05f, .1f, .15f));
+        // bucket on the ground
+        var bucket = new GameObject("Bucket"); bucket.transform.SetParent(pump.transform, false);
+        bucket.transform.localPosition = new Vector3(-.15f, .02f, .3f);
+        Part("BucketBody", Ring(12, .82f), wood, bucket.transform, new Vector3(0, .09f, 0), id, new Vector3(.14f, .16f, .14f));
+        Part("BucketWater", Disc(3, 0, 10), Mat(new Color(.45f, .7f, .85f)), bucket.transform, new Vector3(0, .02f, 0), id, new Vector3(.12f, 1, .12f));
+        Part("BucketHandle", box, iron, bucket.transform, new Vector3(0, .20f, 0), id, new Vector3(.16f, .02f, .02f));
+    }
+
+    static void AddStumpWithAxe(Transform parent, Vector3 lp, System.Random rng)
+    {
+        var stump = new GameObject("Stump"); stump.transform.SetParent(parent, false);
+        stump.transform.localPosition = lp;
+        var bark = Mat(new Color(.38f, .28f, .20f), default, .35f, .1f);
+        var woodCut = Mat(new Color(.72f, .52f, .38f), default, .3f, .12f);
+        var iron = Mat(Iron);
+        var wood = Mat(new Color(.42f, .28f, .18f));
+        var id = Quaternion.identity;
+        var box = ChamferBox(.16f);
+        // stump
+        Part("StumpBase", box, bark, stump.transform, new Vector3(0, .16f, 0), id, new Vector3(.55f, .32f, .55f));
+        Part("StumpTop", Disc(rng.Next(), .05f, 10), woodCut, stump.transform, new Vector3(0, .34f, 0), id, new Vector3(.5f, 1, .5f));
+        // axe head stuck in the top
+        Part("AxeHead", box, iron, stump.transform, new Vector3(0, .40f, .18f), Quaternion.Euler(10, 0, 25), new Vector3(.28f, .06f, .12f));
+        Part("AxeBlade", box, iron, stump.transform, new Vector3(0, .40f, .30f), Quaternion.Euler(10, 0, 25), new Vector3(.14f, .14f, .03f));
+        // axe handle sticking out
+        Cyl(stump.transform, "AxeHandle", wood, new Vector3(0, .40f, .20f), new Vector3(0, .85f, .55f), .035f, 6);
+        // little chips around
+        for (int i = 0; i < 4; i++)
+        {
+            float a = (float)(rng.NextDouble() * 6.28), r = (float)(rng.NextDouble() * .3 + .1);
+            Part("Chip", Blob(rng.Next(), .15f, 3, 5), woodCut, stump.transform, new Vector3(Mathf.Cos(a) * r, .36f, Mathf.Sin(a) * r), Quaternion.Euler(0, (float)(rng.NextDouble() * 360), 0), new Vector3(.08f, .04f, .08f));
+        }
     }
 
     static GameObject Icon(Transform parent, int kind)

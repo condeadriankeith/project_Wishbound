@@ -53,7 +53,7 @@ public class FarmPlotState : MonoBehaviour
 
     void Update()
     {
-        if (blighted) return;
+        if (blighted || cinematicGrowth) return;
         float dt = Time.deltaTime;
         if (phase == Phase.Growing)
         {
@@ -66,8 +66,11 @@ public class FarmPlotState : MonoBehaviour
         if (visTimer <= 0) { visTimer = .4f; Refresh(false); }
     }
 
+    public bool cinematicGrowth;
+
     public Need NextNeed()
     {
+        if (cinematicGrowth) return Need.None;
         switch (phase)
         {
             case Phase.Fallow: return Need.Till;
@@ -75,6 +78,12 @@ public class FarmPlotState : MonoBehaviour
             case Phase.Growing: return water < .4f ? Need.Water : Need.None;
             default: return Need.Harvest;
         }
+    }
+
+    public void CompleteBlessing()
+    {
+        cinematicGrowth = false; blighted = false; growth = 1f; water = 1f;
+        phase = Phase.Ripe; Refresh(true);
     }
 
     // ---------------------------------------------------------------- work

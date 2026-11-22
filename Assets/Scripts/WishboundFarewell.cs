@@ -21,7 +21,7 @@ public sealed class WishboundFarewell : MonoBehaviour
     public static void Play(Vector2 screenStart)
     {
         if (running) return;
-        running = true;
+        running = true; WispCursor.Claims++;
         var go = new GameObject("Wishbound Farewell");
         DontDestroyOnLoad(go);
         go.AddComponent<WishboundFarewell>().StartCoroutine(go.GetComponent<WishboundFarewell>().Run(screenStart));

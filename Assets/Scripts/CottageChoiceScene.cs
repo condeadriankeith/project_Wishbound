@@ -133,7 +133,8 @@ public class CottageChoiceScene : MonoBehaviour
         Part("Hearth", box, wallStone, new Vector3(-W / 2 + .6f, .55f, -D / 2 + .55f), new Vector3(1.1f, 1.1f, .8f), null, false);
         Part("HearthAsh", box, VillageKit.Mat(new Color(.12f, .12f, .14f)), new Vector3(-W / 2 + .6f, .3f, -D / 2 + .85f), new Vector3(.7f, .05f, .3f), null, false);
         Part("Table", box, wood, new Vector3(1.4f, .45f, -.9f), new Vector3(1.2f, .08f, .8f), null, false);
-        Vector3 lanternAt = cradle + new Vector3(.75f, 0, .1f);
+        Vector3 lanternAt = cradle + new Vector3(.75f, .55f, .1f);
+        Part("LanternStand", box, wood, lanternAt - Vector3.up * .275f, new Vector3(.48f, .55f, .48f));
         var lan = Part("ClayLantern", VillageKit.Ring(9, .82f), clay, lanternAt, new Vector3(.17f, .32f, .17f), null, false); lanternT = lan.transform;
         Part("LanternCrack", box, VillageKit.Mat(new Color(.1f, .06f, .05f), new Color(.5f, .3f, .1f)), lanternAt + new Vector3(.17f, .17f, 0), new Vector3(.02f, .18f, .03f), Quaternion.Euler(0, 0, 18), false);
         // the fragment
@@ -273,8 +274,8 @@ public class CottageChoiceScene : MonoBehaviour
                 if (dSill < sillRadius)
                 {
                     phase = Phase.Interaction;
-                    if (IsoCameraRig.Active) IsoCameraRig.Active.SetProfile(IsoCameraRig.Profile.WindowHold(Quaternion.LookRotation(-windowNormal).eulerAngles.y));
-                    StartCoroutine(Interaction(child));
+                    
+                    FragmentBlessing.Run(this, child);   // the new beat: what the fragments have been doing for the village
                 }
                 break;
             case Phase.Choice:
@@ -383,6 +384,7 @@ public class CottageChoiceScene : MonoBehaviour
     {
         phase = Phase.Done;
         StoryFlags.Set("CottageChoiceMade");
+        MountainJourney.Begin(a);
         if (IsoCameraRig.Active) IsoCameraRig.Active.SetProfile(null);
         if (MusicDirector.Instance) MusicDirector.Instance.Play(a == StarAlignment.Tether ? "tether" : "roots", 5f);
         var zone = cottage.Find("CourtyardZone"); if (zone) zone.GetComponent<CameraProfileZone>().active = false;
@@ -423,8 +425,13 @@ public class CottageChoiceScene : MonoBehaviour
         var child = ChildEncounter.Instance;
         if (tether) { phase = Phase.Tether; StartCoroutine(Tether(child)); } else { phase = Phase.Roots; StartCoroutine(Roots(child)); }
     }
+    public Transform Cottage => cottage; public Light Heartbeat => heartbeat; public Light RoomFillLight => roomFill;
+    public Vector3 LanternPoint => fragment ? fragment.position : (cottage ? cottage.position : Vector3.zero);
+    public void CompleteChoice(StarAlignment a) { Finish(a); }
     public string PhaseName => phase.ToString();
     public Transform Sill => sill;
+    /// <summary>World AABB of the cottage's interior (matches W 5.2 x D 4.4 x H 2.6 in Build).</summary>
+    public Bounds RoomBounds { get { var b = new Bounds(cottage.TransformPoint(new Vector3(0, 1.3f, 0)), Vector3.zero); foreach (var sx in new[] { -2.6f, 2.6f }) foreach (var sz in new[] { -2.2f, 2.2f }) foreach (var y in new[] { 0f, 2.6f }) b.Encapsulate(cottage.TransformPoint(new Vector3(sx, y, sz))); return b; } }
     public Vector3 WindowNormal => windowNormal;
 
     static Vector3 Flat(Vector3 v) { v.y = 0; return v; }

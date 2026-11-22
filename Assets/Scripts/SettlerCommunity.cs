@@ -126,6 +126,18 @@ public class SettlerCommunity : MonoBehaviour
         settlers.Add(brain);
     }
 
+    /// <summary>A scripted settler (no brain, no collider) for cutscenes: dressed, rigged and posable through SettlerRig.</summary>
+    public SettlerRig SpawnActor(Vector3 at, float yaw, SettlerLook.Age age, SettlerBrain.Role role, int seed)
+    {
+        var rng = new System.Random(seed); var o = SettlerLook.Random(age, rng); SettlerLook.DressForRole(o, role, rng);
+        var go = new GameObject("Actor_" + role); go.transform.position = at; go.transform.rotation = Quaternion.Euler(0, yaw, 0);
+        float scale = (age == SettlerLook.Age.Child ? 1f : age == SettlerLook.Age.Elder ? adultScale * .95f : adultScale) * o.stature;
+        var visual = new GameObject("Visual").transform; visual.SetParent(go.transform, false); visual.localScale = Vector3.one * scale;
+        var body = SettlerLook.Build(null, visual, o);
+        var rig = go.AddComponent<SettlerRig>(); rig.Bind(body);
+        return rig;
+    }
+
     // ================================================================== shared knowledge
     public Vector3 RandomPathPoint(Vector3 near, float radius, System.Random rng)
     {

@@ -59,12 +59,16 @@ public class ChildEncounter : MonoBehaviour
     void Restore() { if (!child) return; child.target = star; child.followDistance = holdFollowDistance; child.idleDistance = holdFollowDistance * .9f; child.minSeparation = 1.6f; child.enabled = true; }
 
     bool talking;
+    public bool CutsceneControl { get; set; }
+    public Vector3 Trunk => trunk; public Vector3 HidePos => hidePos; public Vector3 PeekPos => peekPos; public float TrunkRadius => trunkRadius;
+    public ChildPerformer Performer { get; private set; }
+    public void EndTalking() { talking = false; nextConversationTime = Time.time + 5f; }
     
 enum State { Waiting, Hiding, Met }
     State state = State.Waiting;
     Vector3 trunk, hidePos, peekPos; float trunkRadius = .6f;
     Text prompt; CanvasGroup promptGroup;
-    float peek, promptAlpha;
+    float peek, promptAlpha; float nextConversationTime;
     CharacterController cc;
     BeachCometCrater crater;
 
@@ -78,6 +82,7 @@ enum State { Waiting, Hiding, Met }
         if (child)
         {
             cc = child.GetComponent<CharacterController>();
+            Performer = child.GetComponent<ChildPerformer>(); if (!Performer) Performer = child.gameObject.AddComponent<ChildPerformer>();
             child.enabled = false;
             child.gameObject.SetActive(false);   // not there yet: it appears once the star has landed
         }
@@ -90,7 +95,11 @@ enum State { Waiting, Hiding, Met }
         {
             case State.Waiting:
                 if (!crater) crater = FindFirstObjectByType<BeachCometCrater>();
-                if (!WishboundIntro.IsPlaying && (crater == null || crater.Revealed)) PlaceBehindTree();
+                // Wait for the crater's ground COLLIDER to finish settling, not just for Revealed to flip true:
+                // placing the child from ground height while the collider is still mid-impact (visual mesh already
+                // sunk, collider not yet rebuilt) is what caused the child to float, then violently correct
+                // upward or sink through the floor once the real collider caught up.
+                if (!WishboundIntro.IsPlaying && (crater == null || crater.ColliderSettled)) PlaceBehindTree();
                 break;
             case State.Hiding: UpdateHiding(); break;
         }
@@ -126,16 +135,25 @@ enum State { Waiting, Hiding, Met }
             Vector3 p = col.transform.TransformPoint(col.center);
             float d = Vector2.Distance(new Vector2(p.x, p.z), new Vector2(around.x, around.z));
             if (d < hideDistance.x || d > hideDistance.y) continue;
+            if (!SafeLand(p)) continue;   // never hide the child on or beside water
             float score = Mathf.Abs(d - (hideDistance.x + hideDistance.y) * .5f);
             if (score < bestScore) { bestScore = score; best = new Vector3(p.x, p.y - col.height * .5f, p.z); radius = col.radius; }
         }
         return bestScore < float.MaxValue;
     }
 
-    Vector3 Ground(Vector3 p)
+    // terrain height (not a raycast: a water collider would count as ground)
+    Vector3 Ground(Vector3 p) { p.y = TerrainProbe.GroundY(p.x, p.z, p.y) + .05f; return p; }
+
+    // the spot and a ring 7m around it must all be well above sea level, so the whole meeting (child, star, camera) stays on dry land
+    static bool SafeLand(Vector3 p)
     {
-        if (Physics.Raycast(p + Vector3.up * 20, Vector3.down, out var hit, 60, ~0, QueryTriggerInteraction.Ignore)) return hit.point + Vector3.up * .05f;
-        return p;
+        float min = TerrainProbe.SeaLevel + 1.5f;
+        if (TerrainProbe.GroundY(p.x, p.z, p.y) < min) return false;
+        p.y = TerrainProbe.GroundY(p.x, p.z, p.y);
+        if (WaterProbe.Near(p, 9f, 5f) || Surface.WetSuppression(p.x, TerrainMath.MirrorZ ? -p.z : p.z) < .95) return false;
+        for (int i = 0; i < 8; i++) { float a = i * Mathf.PI / 4f; if (TerrainProbe.GroundY(p.x + Mathf.Cos(a) * 7f, p.z + Mathf.Sin(a) * 7f, p.y) < min) return false; }
+        return true;
     }
 
     void Warp(Vector3 pos, Quaternion rot)
@@ -147,9 +165,11 @@ enum State { Waiting, Hiding, Met }
 
 void UpdateHiding()
     {
+        if (CutsceneControl) return;
         float d = Vector3.Distance(Flat(star.position), Flat(child.transform.position));
         // shy peeking: a little lean-out every few seconds; leaning out further (and staying out) as the star nears
         float curious = Mathf.InverseLerp(noticeRadius, promptRadius, d);
+        if (Performer) { Performer.emotion = curious > .25f ? ChildEmotion.Peek : ChildEmotion.Shy; Performer.lookTarget = curious > .05f ? star : null; }
         float idlePeek = Mathf.SmoothStep(0, 1, Mathf.PingPong(Time.time * .35f, 1)) * .35f;
         float target = Mathf.Max(idlePeek, curious);
         if (talking) target = 1f;   // mid-conversation the child has stepped out for good
@@ -167,10 +187,7 @@ void UpdateHiding()
         // no HUD prompt any more: getting close starts the conversation (ChildConversation)
         promptAlpha = 0;
         bool close = d < talkRadius;
-        if (close && !talking) { talking = true; ChildConversation.Run(this, star); }
-        // debug / quick skip: H (or gamepad North) still takes the hand straight away
-        if (close && Keyboard.current != null && Keyboard.current[holdKey].wasPressedThisFrame) HoldHands();
-        var gp = Gamepad.current; if (close && gp != null && gp.buttonNorth.wasPressedThisFrame) HoldHands();
+        if (close && !talking && Time.time >= nextConversationTime) { talking = true; ChildConversation.Run(this, star); }
     }
 
 void HoldHands()
