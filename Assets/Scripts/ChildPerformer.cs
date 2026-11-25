@@ -20,6 +20,9 @@ public class ChildPerformer : MonoBehaviour
     [Range(0, 1)] public float lookWeight = 1f;
     public Vector3? lookPoint;
     public float emotionSpeed = 3.5f;
+    public bool Seated { get; set; }
+    public float? RideSeatWeight { get; set; }
+    public float StandingHipHeight => hips != null ? hips.t.position.y - transform.position.y : .85f;
 
     class Bone
     {
@@ -32,7 +35,8 @@ public class ChildPerformer : MonoBehaviour
         }
         public void End() { lastOut = t.localRotation; }
     }
-    Bone hips, spine, head, armL, armR, legL, legR;
+    Bone hips, spine, head, armL, armR, legL, legR, kneeL, kneeR;
+    float seatBlend;
     readonly List<Bone> hairA = new List<Bone>(), hairB = new List<Bone>();
     readonly Dictionary<ChildEmotion, float> weights = new Dictionary<ChildEmotion, float>();
     CharacterController cc; Transform body;
@@ -51,6 +55,7 @@ public class ChildPerformer : MonoBehaviour
         hairA.Clear(); hairB.Clear(); lastYaw = transform.eulerAngles.y;
         Bone Find(string n) { foreach (var tr in rig.GetComponentsInChildren<Transform>(true)) if (tr.name == n) return new Bone { t = tr }; return null; }
         hips = Find("hips"); spine = Find("spine"); head = Find("head"); armL = Find("arm.L"); armR = Find("arm.R"); legL = Find("leg.L"); legR = Find("leg.R");
+        kneeL = Find("knee.L"); kneeR = Find("knee.R");
         foreach (var tr in rig.GetComponentsInChildren<Transform>(true))
         {
             if (!tr.name.StartsWith("hair_")) continue;
@@ -65,7 +70,7 @@ public class ChildPerformer : MonoBehaviour
 
     void LateUpdate()
     {
-        if (!ready) { if (Time.frameCount % 30 == 0 || body == null) Bind(); if (!ready) return; }
+        if (!ready || hips == null) { ready = false; if (Time.frameCount % 30 == 0 || body == null) Bind(); if (!ready) return; }
         float dt = Mathf.Min(Time.deltaTime, .05f); if (dt <= 0) return;
         float time = Time.time + t0;
         foreach (ChildEmotion e in System.Enum.GetValues(typeof(ChildEmotion)))
@@ -75,6 +80,7 @@ public class ChildPerformer : MonoBehaviour
         }
         hips.Begin(); spine.Begin(); head.Begin(); armL.Begin(); armR.Begin();
         if (legL != null) legL.Begin(); if (legR != null) legR.Begin();
+        kneeL?.Begin(); kneeR?.Begin();
 
         Vector3 right = transform.right, up = Vector3.up, fwd = transform.forward;
         float speed = cc ? new Vector3(cc.velocity.x, 0, cc.velocity.z).magnitude : 0f;
@@ -117,23 +123,51 @@ public class ChildPerformer : MonoBehaviour
         ArmDelta(armL, 1, shy * 12 - awe * 16 - warm * 14 + breath * .6f, shy * -10 + awe * 12 + warm * 8 + sway * 2, right, fwd);
         ArmDelta(armR, -1, shy * 12 - awe * 16 - warm * 14 - reach * 12 - wave * 88 + wv * wave * 14 + breath * -.6f, shy * -10 + awe * 12 + warm * 8 + reach * 72 + wave * 6, right, fwd);
 
+        seatBlend = RideSeatWeight ?? Mathf.MoveTowards(seatBlend, Seated ? 1f : 0f, dt * 1.6f);
+        if (seatBlend > 0f)
+        {
+            Bend(legL, -80f, right, seatBlend); Bend(legR, -80f, right, seatBlend);
+            Bend(kneeL, 85f, right, seatBlend); Bend(kneeR, 85f, right, seatBlend);
+            spine.t.rotation = Quaternion.AngleAxis(5f * seatBlend, right) * spine.t.rotation;
+        }
         hips.End(); spine.End(); head.End(); armL.End(); armR.End();
         if (legL != null) legL.End(); if (legR != null) legR.End();
+        kneeL?.End(); kneeR?.End();
 
         // ---- hair follow-through
-        Vector3 hv = (head.t.position - lastHeadPos) / dt; lastHeadPos = head.t.position;
-        headVel = Vector3.Lerp(headVel, hv, 1 - Mathf.Exp(-14 * dt));
-        Vector3 local = transform.InverseTransformDirection(headVel) * -.05f;                 // hair trails opposite to motion
-        Vector3 goal = new Vector3(local.x, 0, local.z) + new Vector3(0, 0, Mathf.Sin(time * 1.3f) * .01f);
-        hairV += ((goal - hairS) * 90f - hairV * 9f) * dt; hairS += hairV * dt;               // damped spring (under-damped: a little overshoot)
-        float ax = Mathf.Clamp(hairS.z * 120f, -28f, 28f), az = Mathf.Clamp(-hairS.x * 120f, -28f, 28f);
-        for (int i = 0; i < hairA.Count; i++) { var h = hairA[i]; h.Begin(); h.t.rotation = Quaternion.AngleAxis(ax * .55f, right) * Quaternion.AngleAxis(az * .55f, fwd) * h.t.rotation; h.End(); }
-        for (int i = 0; i < hairB.Count; i++) { var h = hairB[i]; h.Begin(); h.t.rotation = Quaternion.AngleAxis(ax, right) * Quaternion.AngleAxis(az, fwd) * h.t.rotation; h.End(); }
+        Vector3 hv = (head.t.position - lastHeadPos) / dt;
+        lastHeadPos = head.t.position;
+        bool flight = RideSeatWeight.HasValue || hv.sqrMagnitude > 64f;
+        if (hv.sqrMagnitude > 3600f) headVel = Vector3.zero;
+        headVel = Vector3.Lerp(headVel, Vector3.ClampMagnitude(hv, 5f), 1f - Mathf.Exp(-10f * dt));
+        Vector3 local = transform.InverseTransformDirection(headVel);
+        // Protect the scalp on hard turns and warps. Only allow a small trailing bend in flight.
+        Vector3 goal = new Vector3(-local.x * .012f, 0, Mathf.Max(0f, local.z) * -.021f);
+        hairS = Vector3.SmoothDamp(hairS, goal, ref hairV, .17f, 1f, dt);
+        float pitch = Mathf.Clamp(hairS.z * 105f, flight ? -4f : -8f, 0f);
+        float roll = Mathf.Clamp(-hairS.x * 100f, flight ? -2f : -5f, flight ? 2f : 5f);
+        ApplyHair(hairA, pitch * .25f, roll * .25f, right, fwd);
+        ApplyHair(hairB, pitch * .65f, roll * .65f, right, fwd);
+    }
+
+    static void ApplyHair(List<Bone> chain, float pitch, float roll, Vector3 right, Vector3 forward)
+    {
+        foreach (var bone in chain)
+        {
+            bone.Begin();
+            bone.t.rotation = Quaternion.AngleAxis(pitch, right) * Quaternion.AngleAxis(roll, forward) * bone.t.rotation;
+            bone.End();
+        }
     }
 
     static void ArmDelta(Bone b, int side, float down, float swing, Vector3 right, Vector3 fwd)
     {
         b.t.rotation = Quaternion.AngleAxis(-swing, right) * Quaternion.AngleAxis(side * down, fwd) * b.t.rotation;
+    }
+
+    static void Bend(Bone bone, float degrees, Vector3 axis, float blend)
+    {
+        if (bone != null) bone.t.rotation = Quaternion.AngleAxis(degrees * blend, axis) * bone.t.rotation;
     }
 
     /// <summary>Convenience for cutscenes: set an emotion and (optionally) who the child is looking at.</summary>

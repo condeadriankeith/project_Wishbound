@@ -27,6 +27,8 @@ GraphicsSettings:
     m_Shader: {fileID: 102, guid: 0000000000000000f000000000000000, type: 0}
   m_VideoShadersIncludeMode: 2
   m_AlwaysIncludedShaders:
+  - {fileID: 4800000, guid: de1305755848f584c82d76a0f8d6682c, type: 3}
+  - {fileID: 4800000, guid: fa13ebf58d3f9cc478095a2bb153e65a, type: 3}
   - {fileID: 7, guid: 0000000000000000f000000000000000, type: 0}
   - {fileID: 15104, guid: 0000000000000000f000000000000000, type: 0}
   - {fileID: 15105, guid: 0000000000000000f000000000000000, type: 0}

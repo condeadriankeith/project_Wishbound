@@ -10,17 +10,18 @@ public class LivingDayNight : MonoBehaviour
  [Tooltip("Set by cutscenes: hour follows scriptedHour exactly, with no smoothing.")] [NonSerialized] public bool scripted; [NonSerialized] public float scriptedHour=18;
  public void BeginStoryNight(){storyNight=true;}
  public void EndStoryNight(){storyNight=false;computerTime=true;}
- public static bool PointerOverPanel { get { if(!Instance||!Instance.showPanel)return false; var mouse=UnityEngine.InputSystem.Mouse.current; if(mouse==null)return false; var p=mouse.position.ReadValue(); return p.x>=16 && p.x<=316 && Screen.height-p.y>=16 && Screen.height-p.y<=210; } } public bool computerTime=true; [Range(0,24)]public float manualHour=12;
+ public static bool PointerOverPanel { get { if(!Instance||!Instance.showPanel)return false; var p=WishboundInput.Pointer; return p.x>=16 && p.x<=316 && Screen.height-p.y>=16 && Screen.height-p.y<=210; } } public bool computerTime=true; [Range(0,24)]public float manualHour=12;
  public float transitionSeconds=2; public float CurrentHour {get;private set;} public string Mode=>computerTime?"Computer time":"Preview";
+ public float ComputerHour { get; private set; }
  float hour; bool initialized; GUIStyle label,button; bool expanded=true; float nextGI;
  void OnEnable(){
- Instance=this; initialized=false;
+ Instance=this; initialized=false; ComputerHour=(float)DateTime.Now.TimeOfDay.TotalHours;
  if(!sun){var lights=FindObjectsByType<Light>(FindObjectsSortMode.None);foreach(var l in lights)if(l.type==LightType.Directional){sun=l;break;}}
  if(!sky)sky=RenderSettings.skybox;
 }
  public void SetHour(float value){computerTime=false;manualHour=Mathf.Repeat(value,24);}
  public void UseComputerTime(){computerTime=true;}
- void LateUpdate(){if(!ocean){var water=GameObject.Find("Ocean");if(water){var renderer=water.GetComponent<Renderer>();if(renderer)ocean=renderer.sharedMaterial;}}if(scripted){hour=Mathf.Repeat(scriptedHour,24);initialized=true;CurrentHour=hour;Apply(hour);return;}float desired=storyNight?storyNightHour:computerTime?(float)DateTime.Now.TimeOfDay.TotalHours:manualHour;if(!initialized){hour=desired;initialized=true;}float delta=Mathf.DeltaAngle(hour*15,desired*15)/15;hour=Mathf.Repeat(hour+delta*(1-Mathf.Exp(-Time.deltaTime*3/Mathf.Max(.1f,transitionSeconds))),24);if(Mathf.Abs(delta)<.0001f)hour=desired;CurrentHour=hour;Apply(hour);}
+ float lastCH=-1;void LateUpdate(){float nowH=(float)DateTime.Now.TimeOfDay.TotalHours;bool jumped=lastCH>=0&&Mathf.Abs(Mathf.DeltaAngle(lastCH*15,nowH*15))/15>.02f;lastCH=nowH;ComputerHour=nowH;if(!ocean){var water=GameObject.Find("Ocean");if(water){var renderer=water.GetComponent<Renderer>();if(renderer)ocean=renderer.sharedMaterial;}}if(scripted){hour=Mathf.Repeat(scriptedHour,24);initialized=true;CurrentHour=hour;Apply(hour);return;}float desired=storyNight?storyNightHour:computerTime?ComputerHour:manualHour;if(!initialized||(jumped&&computerTime&&!storyNight)){hour=desired;initialized=true;}float delta=Mathf.DeltaAngle(hour*15,desired*15)/15;hour=Mathf.Repeat(hour+delta*(1-Mathf.Exp(-Time.deltaTime*3/Mathf.Max(.1f,transitionSeconds))),24);if(Mathf.Abs(delta)<.0001f)hour=desired;CurrentHour=hour;Apply(hour);}
  public void Apply(float h){float elevation=Mathf.Sin((h-6)/24*Mathf.PI*2);float day=Mathf.SmoothStep(0,1,Mathf.InverseLerp(-.22f,.22f,elevation));float golden=(1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(0,.45f,Mathf.Abs(elevation))))*day;float night=1-day; if(cloudCookieMaterial)cloudCookieMaterial.SetFloat("_intensity",Mathf.Lerp(.08f,.42f,day));
  Color zenith=Color.Lerp(new Color(.008f,.015f,.05f),new Color(.08f,.32f,.68f),day);Color horizon=Color.Lerp(new Color(.035f,.06f,.13f),new Color(.62f,.82f,.95f),day);horizon=Color.Lerp(horizon,new Color(1,.39f,.18f),golden*.8f);
  Vector3 sunDir=new Vector3(Mathf.Cos((h-6)/24*Mathf.PI*2),elevation,.28f).normalized;

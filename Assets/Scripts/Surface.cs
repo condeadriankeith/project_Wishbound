@@ -39,15 +39,30 @@ public static class Surface
     // flat list of road centreline segments + half-widths from RoadBuild once per terrain build and answers
     // 0..1 'on the road, fading at the shoulder' the same way PathAt does, so callers can blend both sources.
     struct RoadSeg { public double x0, z0, x1, z1, halfW; }
-    static List<RoadSeg> roadSegs;
+    const double RoadCell = 16.0;
+    static Dictionary<(int x, int z), List<RoadSeg>> roadSegs;
+
+    static int RoadIndex(double p) => (int)System.Math.Floor(p / RoadCell);
     static int roadSegsBuiltHash = int.MinValue;
 
     static void BuildRoadSegs()
     {
-        roadSegs = new List<RoadSeg>();
-        foreach (var r in RoadBuild.Roads)
-            for (int i = 0; i < r.x.Length - 1; i++)
-                roadSegs.Add(new RoadSeg { x0 = r.x[i], z0 = r.z[i], x1 = r.x[i + 1], z1 = r.z[i + 1], halfW = r.halfW[i] + Shoulder });
+        roadSegs = new Dictionary<(int, int), List<RoadSeg>>();
+        foreach (var road in RoadBuild.Roads)
+            for (int i = 0; i < road.x.Length - 1; i++)
+            {
+                var segment = new RoadSeg { x0 = road.x[i], z0 = road.z[i], x1 = road.x[i+1], z1 = road.z[i+1], halfW = road.halfW[i] + Shoulder };
+                double reach = segment.halfW + Shoulder;
+                int maxX = RoadIndex(System.Math.Max(segment.x0, segment.x1) + reach);
+                int maxZ = RoadIndex(System.Math.Max(segment.z0, segment.z1) + reach);
+                for (int x = RoadIndex(System.Math.Min(segment.x0, segment.x1) - reach); x <= maxX; x++)
+                    for (int z = RoadIndex(System.Math.Min(segment.z0, segment.z1) - reach); z <= maxZ; z++)
+                    {
+                        if (!roadSegs.TryGetValue((x,z), out var cell))
+                            roadSegs[(x,z)] = cell = new List<RoadSeg>();
+                        cell.Add(segment);
+                    }
+            }
         roadSegsBuiltHash = RoadBuild.Hash;
     }
 
@@ -61,8 +76,9 @@ public static class Surface
     public static double RoadPathAt(double x, double z)
     {
         if (roadSegs == null || roadSegsBuiltHash != RoadBuild.Hash) BuildRoadSegs();
+        if (!roadSegs.TryGetValue((RoadIndex(x), RoadIndex(z)), out var segments)) return 0;
         double best = 0;
-        foreach (var seg in roadSegs)
+        foreach (var seg in segments)
         {
             double vx = seg.x1 - seg.x0, vz = seg.z1 - seg.z0, l2 = vx * vx + vz * vz;
             double t = l2 > 1e-9 ? ((x - seg.x0) * vx + (z - seg.z0) * vz) / l2 : 0;

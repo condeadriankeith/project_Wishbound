@@ -463,7 +463,7 @@ public class IslandWorld : MonoBehaviour
     void BuildHarborAndBoats()
     {
         double dz0 = Roads.Dz0;
-        PropPrim(PrimitiveType.Cube, Scatter.Hex(0x936e45), U(15, 1.4, dz0 - 18), Quaternion.identity, new Vector3(6.5f, 0.5f, 52), "PierDeck");
+        IslandDeckBridge.Between("Harbor timber deck", U(15, 1.65, dz0 - 44), U(15, 1.65, dz0 + 8), 6.5f, transform, 0);
         var pileMesh = TreeFactory.Cyl(0.35f, 0.35f, 7, 8);
         for (int i = 0; i <= 11; i++) foreach (float s in new[] { -2.8f, 2.8f })
             PropMesh(pileMesh, Scatter.Hex(0x5a3e24), U(15 + s, -0.6, dz0 + 6 - i * 4.5), Quaternion.identity, Vector3.one, "Piling");

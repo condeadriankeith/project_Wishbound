@@ -26,6 +26,12 @@ Shader "Island/GhibliToon"
         _RimPower("Rim Power", Float) = 3.2
 
         [HDR] _EmissionColor("Emission", Color) = (0,0,0,0)
+
+        [Header(Light Response)]
+        _Gloss("Gloss", Range(0, 1)) = 0.5
+        _SpecStrength("Highlight Strength", Range(0, 1)) = 0.3
+        _ReflectStrength("Sky Reflection", Range(0, 1)) = 0.22
+        _AddLightBoost("Local Light Boost", Range(0, 4)) = 1.6
         [HideInInspector] _Cull("Cull", Float) = 2
     }
 
@@ -48,6 +54,10 @@ Shader "Island/GhibliToon"
         half _RimStrength;
         half _RimPower;
         half4 _EmissionColor;
+        half _Gloss;
+        half _SpecStrength;
+        half _ReflectStrength;
+        half _AddLightBoost;
         half _Cull;
     CBUFFER_END
     ENDHLSL
@@ -133,6 +143,17 @@ Shader "Island/GhibliToon"
                      + (1.0000 - 0.8039) * smoothstep(0.75 - s, 0.75 + s, v);
             }
 
+            // local lights (star orb, lamps): lit only on the faces that point at them, banded like the sun, plus a crisp highlight
+            half3 AddLight(Light l, half3 N, half3 V, half3 albedo, half shin)
+            {
+                half nl = saturate(dot(N, l.direction));
+                half band = smoothstep(0.0, 0.3, nl) * 0.55 + smoothstep(0.3, 0.65, nl) * 0.45;
+                half att = l.distanceAttenuation * l.shadowAttenuation;
+                half3 H = normalize(l.direction + V);
+                half spec = smoothstep(0.5, 0.58, pow(saturate(dot(N, H)), shin)) * step(0.001, nl);
+                return l.color * att * (albedo * band * _AddLightBoost + spec * _SpecStrength * lerp(half3(1,1,1), albedo, 0.35));
+            }
+
             half4 frag(Varyings i) : SV_Target
             {
                 UNITY_SETUP_INSTANCE_ID(i);
@@ -163,6 +184,18 @@ Shader "Island/GhibliToon"
 
                 half3 col = albedo * (direct + hemi) + _EmissionColor.rgb;
 
+                // glossy response: sun highlight + sky/ground reflection that follows the living day/night colours
+                half shin = exp2(3.0 + _Gloss * 6.0);
+                half3 Hs = normalize(L.direction + V);
+                half sunSpec = smoothstep(0.5, 0.58, pow(saturate(dot(N, Hs)), shin)) * step(0.001, dot(N, L.direction));
+                col += L.color * sunSpec * L.shadowAttenuation * _SpecStrength * lerp(half3(1,1,1), albedo, 0.35);
+                half3 Rv = reflect(-V, N);
+                half3 skyRef = (_HemiIntensity > 0.001)
+                    ? lerp(_HemiGround.rgb, _HemiSky.rgb, smoothstep(-0.2, 0.5, Rv.y)) * _HemiIntensity
+                    : SampleSH(Rv);
+                half fres = 0.12 + 0.88 * pow(1.0 - saturate(dot(N, V)), 3.0);
+                col += skyRef * fres * _ReflectStrength * (0.3 + _Gloss) * lerp(half3(1,1,1), albedo, 0.5);
+
                 #if defined(_ADDITIONAL_LIGHTS)
                 {
                     InputData inputData = (InputData)0;
@@ -181,12 +214,12 @@ Shader "Island/GhibliToon"
                     {
                         CLUSTER_LIGHT_LOOP_SUBTRACTIVE_LIGHT_CHECK
                         Light l = GetAdditionalLight(lightIndex, inputData, shadowMask, aoFactor);
-                        col += albedo * l.color * ToonRamp(saturate(dot(N, l.direction) * 0.5 + 0.5)) * l.distanceAttenuation * l.shadowAttenuation;
+                        col += AddLight(l, N, V, albedo, shin);
                     }
                     #endif
                     LIGHT_LOOP_BEGIN(pixelLightCount)
                         Light l2 = GetAdditionalLight(lightIndex, inputData, shadowMask, aoFactor);
-                        col += albedo * l2.color * ToonRamp(saturate(dot(N, l2.direction) * 0.5 + 0.5)) * l2.distanceAttenuation * l2.shadowAttenuation;
+                        col += AddLight(l2, N, V, albedo, shin);
                     LIGHT_LOOP_END
                 }
                 #endif

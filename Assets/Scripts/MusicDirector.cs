@@ -13,7 +13,13 @@ public class MusicDirector : MonoBehaviour
     readonly Dictionary<string, Coroutine> fades = new Dictionary<string, Coroutine>();
     readonly List<AudioSource> oneShots = new List<AudioSource>();
     string current;
-    AudioSource ambience;
+    readonly AudioSource[] beds = new AudioSource[2];
+    AudioSource waterfall;
+    AudioLowPassFilter[] bedFilters = new AudioLowPassFilter[2];
+    int activeBed;
+    float nextZoneCheck;
+    bool indoors;
+    AudioClip shore, stream, insects, forest;
     float duckUntil;
     float duckGain = 1f;
 
@@ -24,20 +30,77 @@ public class MusicDirector : MonoBehaviour
         yield return null;
         while (WishboundIntro.IsPlaying) yield return null;
         if (current == null) Play(StoryFlags.Alignment == StarAlignment.Tether ? "tether" : StoryFlags.Alignment == StarAlignment.Roots ? "roots" : "explore", 5f);
-        if (nightAir)
+        shore = Resources.Load<AudioClip>("WishboundAudio/Ambience/Shore");
+        stream = Resources.Load<AudioClip>("WishboundAudio/Ambience/Stream");
+        insects = Resources.Load<AudioClip>("WishboundAudio/Ambience/Night");
+        forest = Resources.Load<AudioClip>("WishboundAudio/Environment/Bird");
+        for (int i = 0; i < beds.Length; i++)
         {
-            ambience = gameObject.AddComponent<AudioSource>();
-            ambience.playOnAwake = false; ambience.clip = nightAir; ambience.loop = true;
-            ambience.outputAudioMixerGroup = ambienceBus; ambience.volume = 0; ambience.Play();
+            var bedObject = new GameObject("Ambient bed");
+            bedObject.transform.SetParent(transform, false);
+            beds[i] = bedObject.AddComponent<AudioSource>();
+            bedFilters[i] = bedObject.AddComponent<AudioLowPassFilter>();
+            bedFilters[i].cutoffFrequency = 20000;
+            beds[i].playOnAwake = false; beds[i].loop = true;
+            beds[i].outputAudioMixerGroup = ambienceBus; beds[i].volume = 0;
         }
+        var fallObject = new GameObject("Nearest waterfall");
+        fallObject.transform.SetParent(transform,false);
+        waterfall = fallObject.AddComponent<AudioSource>();
+        waterfall.clip = Resources.Load<AudioClip>("WishboundAudio/Ambience/Waterfall");
+        waterfall.outputAudioMixerGroup = ambienceBus;
+        waterfall.playOnAwake = false; waterfall.loop = true; waterfall.spatialBlend = 1;
+        waterfall.dopplerLevel = 0; waterfall.rolloffMode = AudioRolloffMode.Linear;
+        waterfall.minDistance = 3; waterfall.maxDistance = 38; waterfall.volume = .19f;
     }
     void Update()
     {
         float nextDuck = Mathf.MoveTowards(duckGain, Time.unscaledTime < duckUntil ? .45f : 1f, Time.unscaledDeltaTime * 1.8f);
         foreach (var pair in sources) foreach (var src in pair.Value) src.volume *= nextDuck / Mathf.Max(.001f, duckGain);
         duckGain = nextDuck;
-        if (ambience) ambience.volume = Mathf.MoveTowards(ambience.volume, WishboundIntro.IsPlaying ? 0 : .45f, Time.unscaledDeltaTime * .12f);
+        UpdateAmbience();
     }
+    void UpdateAmbience()
+    {
+        if (!beds[0] || !AudioListenerGuard.Ear) return;
+        if (Time.unscaledTime >= nextZoneCheck)
+        {
+            nextZoneCheck = Time.unscaledTime + 1;
+            var p = AudioListenerGuard.Ear.position;
+            indoors = HouseEntrances.Instance && HouseEntrances.Instance.Inside;
+            float nearest = waterfall.maxDistance * waterfall.maxDistance;
+            bool found = false;
+            if (!indoors && !WishboundIntro.IsPlaying)
+            {
+                foreach (var fall in WaterBuilder.Falls)
+                {
+                    var pool = fall.pts[fall.pts.Length-1];
+                    float distance = (p-pool).sqrMagnitude;
+                    if (distance >= nearest) continue;
+                    nearest = distance; waterfall.transform.position = pool; found = true;
+                }
+            }
+            if (found && !waterfall.isPlaying) waterfall.Play();
+            if (!found && waterfall.isPlaying) waterfall.Stop();
+            float hour = LivingDayNight.Instance ? LivingDayNight.Instance.CurrentHour : 12;
+            AudioClip bed = indoors ? nightAir : p.y < TerrainProbe.SeaLevel + 2 ? shore :
+                WaterProbe.Near(p, 9, 4) ? stream : hour < 6 || hour > 19 ? insects : forest;
+            if (bed && beds[activeBed].clip != bed)
+            {
+                activeBed = 1 - activeBed;
+                var source = beds[activeBed]; source.volume = 0; source.clip = bed; source.Play();
+            }
+        }
+        for (int i = 0; i < beds.Length; i++)
+        {
+            var source = beds[i];
+            float gain = i == activeBed && !WishboundIntro.IsPlaying ? (indoors ? .025f : .12f) : 0;
+            bedFilters[i].cutoffFrequency = Mathf.Lerp(bedFilters[i].cutoffFrequency, indoors ? 1300 : 20000, Time.unscaledDeltaTime * 2);
+            source.volume = Mathf.MoveTowards(source.volume,gain,Time.unscaledDeltaTime * .07f);
+            if (i != activeBed && source.volume == 0 && source.isPlaying) source.Stop();
+        }
+    }
+
     void OnDestroy() { if (Instance == this) Instance = null; }
 
     public void Play(string mood, float fade = -1)

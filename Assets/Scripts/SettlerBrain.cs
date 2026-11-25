@@ -35,6 +35,9 @@ public class SettlerBrain : MonoBehaviour
     public bool Busy { get; set; }      // in a conversation or reacting
     public bool Chatting { get; private set; }
     public Job CurrentJob { get; private set; }   // village job board claim (haul / cart / farm chore / chop)
+    public SettlerCommunity.Group group;          // the family, couple or circle of friends this settler belongs to
+    public SettlerCommunity.Group friends;
+    public SettlerBrain guardian;                  // a kid in a family: the grown-up they tag along after
     public HandCart riding;                        // cart currently hitched to this settler, if any
     Coroutine life;
     GameObject tool;
@@ -66,6 +69,7 @@ public class SettlerBrain : MonoBehaviour
     [Range(0,1)] public float stamina = .9f, hunger = .15f, loneliness = .2f;
     public int completedJobs, failedJobs;
     string memoryKey;
+    Vector3 farmWorkAccess;
     IEnumerator WalkTo(Vector3 target, float speed, float arrive = .6f, float timeout = 70f)
     {
         yield return Navigate(target, speed, arrive, timeout, false);
@@ -120,9 +124,13 @@ public class SettlerBrain : MonoBehaviour
                 if(nearest<.7f) {
                     Vector3 side=Vector3.Cross(Vector3.up,dir); if(Vector3.Dot(side,normal)<0) side=-side;
                     Vector3 steer=(dir+side*.9f).normalized;
-                    if(!VillageWorld.I || VillageWorld.I.Walkable(transform.position+steer*.45f)) dir=steer;
+                    Vector3 probe = transform.position + steer * .45f;
+                    bool canSteer = tradeCart
+                        ? Mathf.Abs(TerrainProbe.GroundY(probe, transform.position.y) - transform.position.y) < .5f
+                        : !VillageWorld.I || VillageWorld.I.Walkable(probe);
+                    if (canSteer) dir = steer;
                 }
-                desired = dir * moveSpeed * Mathf.Clamp01(d / .8f + .3f);
+                desired = dir * moveSpeed * Mathf.Lerp(.78f,1f,Mathf.PerlinNoise(GetInstanceID()%199,Time.time*.42f)) * Mathf.Clamp01(d / .8f + .3f);
             }
         }
         // keep a little personal space from other settlers
@@ -132,7 +140,7 @@ public class SettlerBrain : MonoBehaviour
         cc.Move((vel + Vector3.up * vy) * dt);
         float spd = Flat(cc.velocity).magnitude;
         if (spd > .15f && Flat(vel).sqrMagnitude>.001f) transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(Flat(vel)), 1 - Mathf.Exp(-8 * dt));
-        rig.speed = spd;
+        rig.speed = Mathf.Lerp(rig.speed, spd, 1f - Mathf.Exp(-8f * dt));
         // stuck detection
         if (moving) { stuckTime = Flat(transform.position - lastPos).magnitude < .2f * dt * moveSpeed ? stuckTime + dt : Mathf.Max(0, stuckTime - dt); }
         lastPos = transform.position;
@@ -142,23 +150,119 @@ public class SettlerBrain : MonoBehaviour
     }
 
     void Face(Vector3 p) { Vector3 d = Flat(p - transform.position); if (d.sqrMagnitude > .01f) StartCoroutine(TurnTo(Quaternion.LookRotation(d))); }
-    IEnumerator TurnTo(Quaternion q) { for (float t = 0; t < .5f; t += Time.deltaTime) { transform.rotation = Quaternion.Slerp(transform.rotation, q, t / .5f); yield return null; } }
+    IEnumerator TurnTo(Quaternion q)
+    {
+        Quaternion start = transform.rotation;
+        for (float t = 0; t < .5f; t += Time.deltaTime)
+        {
+            transform.rotation = Quaternion.Slerp(start, q, Mathf.SmoothStep(0,1,t/.5f));
+            yield return null;
+        }
+        transform.rotation = q;
+    }
 
     IEnumerator Do(SettlerRig.Pose pose, float seconds)
     {
         rig.pose = pose;
-        for (float t = 0; t < seconds && (!Busy || CurrentJob != null); t += Time.deltaTime) yield return null;
+        float nextSound = 0;
+        for (float t = 0; t < seconds && (!Busy || CurrentJob != null); t += Time.deltaTime)
+        {
+            if (t >= nextSound)
+            {
+                string cue = pose switch {
+                    SettlerRig.Pose.Dig or SettlerRig.Pose.Sow => "Dig",
+                    SettlerRig.Pose.Water => "Water",
+                    SettlerRig.Pose.Sweep => "Sweep",
+                    _ => null
+                };
+                if (cue != null) WorldSound.Cue(transform, cue, 24f);
+                nextSound = t + .8f;
+            }
+            yield return null;
+        }
         if (!Busy || CurrentJob != null) rig.pose = tool != null ? SettlerRig.Pose.ShoulderCarry : (riding ? SettlerRig.Pose.PullCart : SettlerRig.Pose.Idle);
     }
 
     // ================================================================== daily life
+    Stockpile tradeOrigin, tradeDestination;
+    List<Vector3> tradeRoute;
+    int tradeIndex;
+    HandCart tradeCart;
+
+    internal void AssignTrade(Stockpile origin, Stockpile destination, List<Vector3> route, int index, HandCart cart)
+    {
+        tradeOrigin = origin;
+        tradeDestination = destination;
+        tradeRoute = route;
+        tradeIndex = index;
+        tradeCart = cart;
+        cart.Hitch(this);
+        riding = cart;
+        rig.pose = SettlerRig.Pose.PullCart;
+    }
+
+    IEnumerator TradeCircuit()
+    {
+        int direction = 1;
+        LoadTradeCart(tradeOrigin);
+        while (tradeCart && tradeOrigin && tradeDestination)
+        {
+            Vector3 target = tradeRoute[tradeIndex];
+            moveTarget = target;
+            moveSpeed = walkSpeed * .84f;
+            stuckTime = 0;
+            moving = true;
+            while (Flat(target - transform.position).sqrMagnitude > .85f * .85f)
+            {
+                if (stuckTime > 3f)
+                {
+                    // Give passing villagers room, then resume on the same road sample.
+                    moving = false;
+                    yield return new WaitForSeconds(1f);
+                    stuckTime = 0;
+                    moving = true;
+                }
+                yield return null;
+            }
+            if (tradeIndex != (direction > 0 ? tradeRoute.Count - 1 : 0))
+            {
+                tradeIndex += direction;
+                continue;
+            }
+
+            moving = false;
+            Stockpile depot = direction > 0 ? tradeDestination : tradeOrigin;
+            if (tradeCart.HasCargo)
+            {
+                int qty = tradeCart.Unload(out var resource);
+                int room = Mathf.Max(0, 12 - depot.Count(resource));
+                if (room > 0) depot.Add(resource, Mathf.Min(qty, room));
+            }
+            completedJobs++;
+            Say(direction > 0 ? "Supplies from the lower road." : "Back with goods from up the trail.");
+            rig.pose = SettlerRig.Pose.HandOver;
+            yield return new WaitForSeconds(2.8f);
+            LoadTradeCart(depot);
+            rig.pose = SettlerRig.Pose.PullCart;
+            direction = -direction;
+            tradeIndex += direction;
+        }
+        moving = false;
+    }
+
+    void LoadTradeCart(Stockpile depot)
+    {
+        if (depot.TakeMost(out var resource, out int qty, 4)) tradeCart.SetCargo(resource, qty);
+    }
+
     IEnumerator Life()
     {
+        if (tradeCart) { yield return TradeCircuit(); yield break; }
         while (!VillageWorld.I || !VillageWorld.I.NavReady) yield return null;
         // Imported house prefabs can spawn a family inside a closed fence. Place them
         // on a connected doorstep once, before simulation starts, rather than retrying forever.
         var world=VillageWorld.I;
-        Vector3 hub=world.Storehouse ? world.Storehouse.Dock : home;
+        Vector3 hub=world.Storehouse && world.SharesNavigationArea(home, world.Storehouse.Dock) ? world.Storehouse.Dock : home;
         if(world.FindPath(transform.position,hub).Count==0) {
             for(int i=0;i<60;i++) {
                 if(!world.RandomWalkable(home,3+i*.3f,rng,out var spot) || world.FindPath(spot,hub).Count==0) continue;
@@ -194,10 +298,12 @@ public class SettlerBrain : MonoBehaviour
     IEnumerator PickActivity()
     {
         if (loneliness > .45f) return SocialVisit();
+        var company = friends != null && (group == null || rng.NextDouble() < .35) ? friends : group;
+        if (company != null && role != Role.Kid && rng.NextDouble() < company.Togetherness && community.NearestMate(this, company, 80f) != null) return GroupTime(company);
         if (stamina < .55f) return Rest();
         if (role == Role.Fisher && community.Pond) return Fish();
         if (role == Role.Elder) return stamina < .8f ? SitAndWatch() : SweepDoorstep();
-        if (role == Role.Kid) return community.NearestKid(this,20) ? PlayTag() : TagAlong();
+        if (role == Role.Kid) return guardian != null && rng.NextDouble() < .7 ? TagAlong() : community.NearestKid(this,20) ? PlayTag() : TagAlong();
         if (role == Role.Wanderer && Time.time > nextJourney) return Journey();
         return Stroll();
     }
@@ -231,6 +337,8 @@ public class SettlerBrain : MonoBehaviour
         foreach (var j in vw.jobs)
         {
             if (!j.Open || (retryAfter.TryGetValue(j,out var until) && Time.time<until)) continue;
+            if (!vw.SharesNavigationArea(transform.position, j.where) ||
+                (j.to && !vw.SharesNavigationArea(transform.position, j.to.Dock))) continue;
             if (j.kind == Job.Kind.Haul || j.kind == Job.Kind.ContinueHaul || j.kind == Job.Kind.Restock || j.kind == Job.Kind.Chop || j.kind == Job.Kind.FetchCart) { /* anyone */ }
             else if (role != Role.Farmer && role != Role.Gardener) continue;   // farm chores go to farmers/gardeners first
             float distance=Flat(j.where-transform.position).magnitude;
@@ -238,8 +346,10 @@ public class SettlerBrain : MonoBehaviour
             if(score>bestP) { bestP=score; best=j; }
         }
         if (best == null) return false;
-        Vector3 access=best.plot ? best.plot.WorkSpot(transform.position,rng) : best.cart ? best.cart.HitchPoint : best.where;
-        if(vw.FindPath(transform.position,access).Count==0) {retryAfter[best]=Time.time+30;return false;}
+        Vector3 access = best.cart ? best.cart.HitchPoint : best.where;
+        bool reachable = best.plot ? best.plot.TryWorkAccess(vw, transform.position, out farmWorkAccess)
+            : vw.FindPath(transform.position,access).Count != 0;
+        if (!reachable) { retryAfter[best]=Time.time+30; return false; }
         if(best.cart && (best.cart.reserved || !best.cart.Parked)) return false;
         if(best.cart) best.cart.reserved=true;
         best.claimedBy = this; CurrentJob = best; job = best; return true;
@@ -278,7 +388,7 @@ public class SettlerBrain : MonoBehaviour
     {
         if (!job.plot) yield break;
         Face(job.plot.transform.position); HoldTool("hoe");   // carry hoe on shoulder while approaching
-        yield return WalkToBusy(job.plot.WorkSpot(transform.position, rng));
+        yield return WalkToBusy(farmWorkAccess);
         if (!arrived) { jobFailed=true; yield break; }
         Face(job.plot.transform.position);
         yield return Do(SettlerRig.Pose.Dig, R(3, 5));
@@ -289,7 +399,7 @@ public class SettlerBrain : MonoBehaviour
     {
         if (!job.plot) yield break;
         Face(job.plot.transform.position); HoldTool("hoe");
-        yield return WalkToBusy(job.plot.WorkSpot(transform.position, rng));
+        yield return WalkToBusy(farmWorkAccess);
         if (!arrived) { jobFailed=true; yield break; }
         Face(job.plot.transform.position);
         yield return Do(SettlerRig.Pose.Sow, R(2, 3.5f));
@@ -300,7 +410,7 @@ public class SettlerBrain : MonoBehaviour
     {
         if (!job.plot) yield break;
         var vw = VillageWorld.I;
-        if (vw && vw.Well)
+        if (vw && vw.Well && vw.SharesNavigationArea(transform.position, vw.Well.transform.position))
         {
             var w = vw.Well.transform.position;
             yield return WalkToBusy(w + Flat(transform.position - w).normalized * 1.7f);
@@ -310,7 +420,7 @@ public class SettlerBrain : MonoBehaviour
             while (vw.Well.Drawing) yield return null;
         }
         Face(job.plot.transform.position); HoldTool("can");   // carry watering can while approaching
-        yield return WalkToBusy(job.plot.WorkSpot(transform.position, rng));
+        yield return WalkToBusy(farmWorkAccess);
         if (!arrived) { jobFailed=true; yield break; }
         Face(job.plot.transform.position);
         yield return Do(SettlerRig.Pose.Water, R(3, 5));
@@ -321,7 +431,7 @@ public class SettlerBrain : MonoBehaviour
     {
         if (!job.plot) yield break;
         Face(job.plot.transform.position); HoldTool("hoe");
-        yield return WalkToBusy(job.plot.WorkSpot(transform.position, rng));
+        yield return WalkToBusy(farmWorkAccess);
         if (!arrived) { jobFailed=true; yield break; }
         Face(job.plot.transform.position);
         yield return Do(SettlerRig.Pose.PickUp, R(2, 4));
@@ -515,6 +625,26 @@ public class SettlerBrain : MonoBehaviour
         if(!Busy) yield return Do(SettlerRig.Pose.Cheer,1.2f);
     }
 
+    /// <summary>Time with the people you belong with (a family, a couple or a circle of friends): walk up beside the
+    /// nearest of them and, if you are both free, share a few words. Otherwise you stand or amble together.</summary>
+    IEnumerator GroupTime(SettlerCommunity.Group company)
+    {
+        var mate = community.NearestMate(this, company, 80f);
+        if (mate == null) yield break;
+        Vector3 side = mate.transform.right * (rng.NextDouble() < .5 ? 1.4f : -1.4f);
+        yield return WalkTo(mate.transform.position + side, walkSpeed, .8f, 14f);
+        if (!arrived || Busy) yield break;
+        if (!CanChat || !mate.CanChat)
+        {
+            yield return Idle(R(2, 4));
+            if (rng.NextDouble() < .5) yield return Stroll(.6f);
+            yield break;
+        }
+        var lines = community.GroupLines(company, rng);
+        mate.StartCoroutine(mate.Chat(this, lines, false));
+        yield return Chat(mate, lines, true);
+    }
+
     IEnumerator Skip()
     {
         Vector3 p = community.RandomPathPoint(transform.position, 12, rng);
@@ -525,7 +655,7 @@ public class SettlerBrain : MonoBehaviour
 
     IEnumerator TagAlong()
     {
-        var adult=community.NearestAdult(this,30);
+        var adult = guardian != null ? guardian : community.NearestAdult(this,30);
         if(!adult) {yield return Skip();yield break;}
         for(int i=0;i<4 && !Busy;i++) {
             if(!adult) break;
@@ -536,7 +666,7 @@ public class SettlerBrain : MonoBehaviour
     }
 
     // ================================================================== chatting
-    public bool CanChat => !Busy && Time.time > nextChatOk && (role != Role.Fisher || rig.pose == SettlerRig.Pose.Idle);
+    public bool CanChat => !tradeCart && !Busy && Time.time > nextChatOk && (role != Role.Fisher || rig.pose == SettlerRig.Pose.Idle);
 
     public IEnumerator Chat(SettlerBrain other, string[] lines, bool first)
     {
@@ -573,6 +703,18 @@ public class SettlerBrain : MonoBehaviour
     }
     IEnumerator Eat() {
         var w=VillageWorld.I; var pile=w ? (w.Market && w.Market.Total>0 ? w.Market:w.Storehouse):null;
+        if (w && pile && !w.SharesNavigationArea(home, pile.Dock))
+        {
+            // Outlying households eat at home rather than routing to the hamlet market.
+            yield return WalkTo(home,walkSpeed,1.2f);
+            if (!Busy)
+            {
+                yield return Do(SettlerRig.Pose.Eat,5);
+                hunger=Mathf.Max(0,hunger-.65f);
+                stamina=Mathf.Clamp01(stamina+.12f);
+            }
+            yield break;
+        }
         if(!pile) {yield return Rest();yield break;}
         yield return WalkTo(pile.Dock,walkSpeed);
         if(!arrived || Busy) {yield return Rest();yield break;}
@@ -601,6 +743,7 @@ public class SettlerBrain : MonoBehaviour
     // ================================================================== the star
     void UpdateStarAwareness(float dt)
     {
+        if (tradeCart) return;
         if (!star || WishboundIntro.IsPlaying) return;
         if (HouseEntrances.Instance && HouseEntrances.Instance.Inside) return;
         float d = Flat(star.position - transform.position).magnitude;
@@ -677,7 +820,7 @@ public class SettlerBrain : MonoBehaviour
     IEnumerator Do2(SettlerRig.Pose pose, float s) { rig.pose = pose; yield return new WaitForSeconds(s); rig.pose = SettlerRig.Pose.Idle; }
 
     // ================================================================== helpers
-    public void Say(string line, float seconds = 2.4f) { WhisperLine.Show(transform, line, seconds, height + .35f); }
+    public void Say(string line, float seconds = 2.4f) { WhisperLine.Show(transform, line, seconds, height + .35f).hideBeyond = 22f; }
     string Pick(params string[] a) => a[rng.Next(a.Length)];
 
     void HoldTool(string kind)

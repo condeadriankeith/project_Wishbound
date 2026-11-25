@@ -228,34 +228,57 @@ public class FragmentBlessing : MonoBehaviour
         yield return Say("I'd like that. Either way.", ChildEmotion.Warm, 2.4f);
 
         // ---- the choice (Esc is not offered here: this decision stays the player's)
+        // Left / Right shuffles between the two options: the first frames the star, the second frames the child. Enter / E / F confirms.
         CutsceneSkip.End();
         if (sprint) yield return EndSprint();
-        hintA.text = "hold F   -   gather your pieces"; hintB.text = "press E   -   stay, and know me";
-        StartCoroutine(Fade(hintAGroup, .9f, .6f)); yield return Fade(hintBGroup, .9f, .6f);
-        float held = 0f; bool collect = false, decided = false;
+        host.OpenMemoryChoice();
+        hintA.text = "Gather the star fragments"; hintB.text = "Stay with the humans";
+        captionText.text = "Left / Right  -  choose          Enter  -  confirm"; captionText.color = new Color(1f, .88f, .6f, 1f);
+        StartCoroutine(Fade(captionGroup, .75f, .6f));
         var rad = StarRadiance.Instance;
+        int pick = 0, shown = -1; bool decided = false;
+        float sA = 1f, sB = 1f;
         while (running && !decided)
         {
-            held = StarInput.PulseHeld ? held + Time.deltaTime : Mathf.Max(0f, held - Time.deltaTime * 1.5f);
-            float k = Mathf.Clamp01(held / 1.5f);
-            if (rad) rad.flare = Mathf.Max(rad.flare, k);
-            hintAGroup.alpha = Mathf.Lerp(.9f, 1f, k); hintA.transform.localScale = Vector3.one * (1f + .12f * k); hintBGroup.alpha = .9f - .6f * k;
-            if (k >= 1f) { collect = true; decided = true; }
-            else if (held < .05f && StarInput.ReachPressed) { collect = false; decided = true; }
+            var pad = UnityEngine.InputSystem.Gamepad.current;
+            bool left = WishboundInput.Pressed(UnityEngine.InputSystem.Key.LeftArrow, KeyCode.LeftArrow) || WishboundInput.Pressed(UnityEngine.InputSystem.Key.A, KeyCode.A) || (pad != null && pad.dpad.left.wasPressedThisFrame);
+            bool right = WishboundInput.Pressed(UnityEngine.InputSystem.Key.RightArrow, KeyCode.RightArrow) || WishboundInput.Pressed(UnityEngine.InputSystem.Key.D, KeyCode.D) || (pad != null && pad.dpad.right.wasPressedThisFrame);
+            if (left != right) pick = 1 - pick;
+            if (pick != shown)
+            {
+                shown = pick;
+                StartCoroutine(Frame(pick));
+            }
+            sA = Mathf.Lerp(sA, pick == 0 ? 1.18f : .88f, Time.deltaTime * 7f); sB = Mathf.Lerp(sB, pick == 1 ? 1.18f : .88f, Time.deltaTime * 7f);
+            hintA.transform.localScale = Vector3.one * sA; hintB.transform.localScale = Vector3.one * sB;
+            hintAGroup.alpha = Mathf.Lerp(hintAGroup.alpha, pick == 0 ? 1f : .38f, Time.deltaTime * 7f);
+            hintBGroup.alpha = Mathf.Lerp(hintBGroup.alpha, pick == 1 ? 1f : .38f, Time.deltaTime * 7f);
+            if (rad) rad.flare = Mathf.Lerp(rad.flare, pick == 0 ? .6f : 0f, Time.deltaTime * 4f);
+            bool confirm = WishboundInput.Pressed(UnityEngine.InputSystem.Key.Enter, KeyCode.Return) || WishboundInput.Pressed(UnityEngine.InputSystem.Key.Space, KeyCode.Space) || StarInput.ReachPressed || WishboundInput.Pressed(UnityEngine.InputSystem.Key.F, KeyCode.F) || (pad != null && pad.buttonSouth.wasPressedThisFrame);
+            if (confirm) decided = true;
             yield return null;
         }
-        StartCoroutine(Fade(hintAGroup, 0f, .6f)); StartCoroutine(Fade(hintBGroup, 0f, .6f));
+        StartCoroutine(Fade(hintAGroup, 0f, .6f)); StartCoroutine(Fade(hintBGroup, 0f, .6f)); StartCoroutine(Fade(captionGroup, 0f, .4f));
         if (!decided) yield break;
-        yield return Conclude(collect);
+        yield return Conclude(pick == 0);
+    }
+
+    // Smooth camera move to the highlighted option: 0 = the star, 1 = the child (over the other one's shoulder).
+    IEnumerator Frame(int who)
+    {
+        if (!dir || !star || !child || !child.Child) yield break;
+        Vector3 S() => star.position + Vector3.up * .9f;
+        Vector3 C() => child.Child.transform.position + Vector3.up * .95f;
+        Vector3 Axis() { Vector3 v = Vector3.ProjectOnPlane(C() - S(), Vector3.up); return v.sqrMagnitude < .01f ? Vector3.forward : v.normalized; }
+        Vector3 Side() => Vector3.Cross(Vector3.up, Axis());
+        if (who == 0) yield return dir.Glide(() => C() + Axis() * 2.1f + Side() * .9f + Vector3.up * .2f, S, 30f, 1.3f);
+        else yield return dir.Glide(() => S() - Axis() * 2.1f - Side() * .9f + Vector3.up * .2f, C, 30f, 1.3f);
     }
 
     IEnumerator Conclude(bool collect)
     {
-        StoryFlags.Set("WarmthSeen");
         if (collect)
         {
-            StoryFlags.Set("ChoseGatherFragments");
-            StoryFlags.Nudge(+60f, "Blessing: gather the fragments");
             if (child.Performer) child.Performer.Act(ChildEmotion.Warm, star);
             var rad = StarRadiance.Instance; if (rad) { rad.flare = 1f; rad.UpdateDerivedBucket(); }
             yield return Caption("the light remembers the way home", 3f, false);
@@ -263,8 +286,6 @@ public class FragmentBlessing : MonoBehaviour
         }
         else
         {
-            StoryFlags.Set("ChoseLiveAmongHumans");
-            StoryFlags.Nudge(-60f, "Blessing: stay among the humans");
             if (child.Performer) child.Performer.Act(ChildEmotion.Warm, star);
             var rad = StarRadiance.Instance; if (rad) rad.UpdateDerivedBucket();
             yield return Caption("the light settles, and stays", 3f, false);
@@ -281,10 +302,16 @@ public class FragmentBlessing : MonoBehaviour
         CutsceneSkip.End();
         if (host && host.Cottage) { var f = host.Cottage.Find("StarFragment"); if (f) f.gameObject.SetActive(true); }
         if (child) child.CutsceneControl = false;
-        if (graceful && host) host.CompleteChoice(a);
-        if (child && child.Child) { if (child.Performer) child.Performer.Act(ChildEmotion.None); child.TakeHand(); }
+        if (child && child.Child) { if (child.Performer) child.Performer.Act(ChildEmotion.None); child.Child.enabled = true; }
         if (dir) dir.End(2f);
-        foreach (var g in props) if (g) Destroy(g);
+        if (graceful && host) host.CompleteChoice(a);
+        foreach (var g in props)
+        {
+            if (!g) continue;
+            if (a == StarAlignment.Tether && g.TryGetComponent<FragmentGlow>(out _) &&
+                (g.name == "Fragment B" || g.name == "Fragment D")) continue;
+            Destroy(g);
+        }
         foreach (var a2 in actors) if (a2) Destroy(a2.gameObject);
         Destroy(captionText ? captionText.gameObject : null); Destroy(lineText ? lineText.gameObject : null);
         Destroy(hintA ? hintA.gameObject : null); Destroy(hintB ? hintB.gameObject : null);
@@ -295,12 +322,15 @@ public class FragmentBlessing : MonoBehaviour
     // ------------------------------------------------------------------------------------ props
     Transform MakeFragment(string name, Vector3 at, bool trail)
     {
-        var g = GameObject.CreatePrimitive(PrimitiveType.Sphere); Destroy(g.GetComponent<Collider>()); g.name = name; g.transform.position = at;
-        if (bodyMat) g.GetComponent<Renderer>().sharedMaterial = bodyMat;
-        g.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        var lg = new GameObject("Light"); lg.transform.SetParent(g.transform, false);
-        var l = lg.AddComponent<Light>(); l.type = LightType.Point; l.color = new Color(1f, .72f, .38f); l.range = 7; l.intensity = 2.4f; l.shadows = LightShadows.None;
-        var fg = g.AddComponent<FragmentGlow>(); fg.lamp = l;
+        var g = StarFragment.Create(null,at,.20f).gameObject;
+        g.name = name;
+        var fg = g.AddComponent<FragmentGlow>();
+        fg.baseScale = 1f;
+        var lamp = new GameObject("Memory light").AddComponent<Light>();
+        lamp.transform.SetParent(g.transform,false);
+        lamp.color = new Color(1f,.72f,.38f);
+        lamp.range = 7f;
+        fg.lamp = lamp;
         if (trail)
         {
             var tr = g.AddComponent<TrailRenderer>(); tr.time = 1.4f; tr.widthMultiplier = .35f; tr.minVertexDistance = .2f; if (sparkMat) tr.sharedMaterial = sparkMat;

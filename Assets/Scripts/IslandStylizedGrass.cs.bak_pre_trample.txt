@@ -1,0 +1,402 @@
+using System.Collections;
+using System.Collections.Generic;
+using System.Threading;
+using UnityEngine;
+using static TerrainMath;
+
+/// <summary>
+/// Grass across the Island terrain using the 'GHIBLI style' package grass clumps (Gras_01..03) and its
+/// 'Shader Graphs/Grass' material (via Resources/GhibliNatureSet). Placement rules are unchanged from the
+/// previous system (slope, cliff margin, Surface.Classify / GrassDensity / roads / wetness).
+///
+/// Loading (rewritten for speed - see Assets/Docs/GHIBLI_NATURE_INTEGRATION.md, 'Grass fuller + faster load'):
+///  * scatter runs on background threads (fixed shards, each with its own seeded RNG, so the result is identical
+///    no matter how many threads run it), and the chunk bucketing (GhibliBatch.Build) also runs off the main thread;
+///  * the finished clump list is cached on disk, keyed by a signature of every placement setting plus a fingerprint
+///    of the terrain / roads / rivers, so later Plays just read the file; changing anything re-scatters automatically;
+///  * placement tests are ordered cheapest-first and use the rendered-mesh normal (NVm) instead of 4 analytic height evals.
+/// If a worker thread ever fails, a time-sliced main-thread fallback is used (scatterBudgetMs per frame).
+/// Previous versions: IslandStylizedGrass.cs.bak_pre_fullfast.txt, .bak_pre_perffix.txt, .bak_pre_ghibli.txt
+/// </summary>
+public class IslandStylizedGrass : MonoBehaviour
+{
+    [Header("Legacy (old custom StylizedGrass shader - unused in Ghibli package mode)")]
+    public Mesh grassMesh;
+    public Material sourceMaterial;
+
+    [Header("Ghibli package grass")]
+    public bool usePackageAssets = true;
+    [Tooltip("Total grass clumps planted over the terrain.")]
+    public int clumpCount = 900000;
+    public int seed = 777;
+    public float minHeight = 1.5f;
+    public float maxHeight = 330f;
+    // Minimum normal.y for planting. 0.85 ~ 32 deg - keeps clumps off cliff faces.
+    public float minSlopeY = 0.85f;
+    // Radius (m) used to sample 4 neighbour heights; rejects points near cliff edges.
+    public float cliffMarginMetres = 3f;
+    [Tooltip("Uniform clump scale range (package clumps are ~0.3 m tall).")]
+    public float minScale = 1.5f, maxScale = 2.4f;
+
+    [Header("Loading")]
+    [Tooltip("Cache the scattered clumps on disk (persistentDataPath/IslandGrassCache.bin). Auto-invalidates when settings or terrain change.")]
+    public bool useDiskCache = true;
+    [Tooltip("Scatter worker threads. 0 = auto (cores - 2).")]
+    public int workerThreads = 0;
+    [Tooltip("Main-thread fallback only: milliseconds of scatter work per frame if worker threads fail.")]
+    public float scatterBudgetMs = 6f;
+
+    [Header("Distance LOD")]
+    public float maxRenderDistance = 150f;
+    [Tooltip("Beyond this distance chunks draw the thinned 'far' clumps.")]
+    public float nearDistance = 40f;
+    public int farEvery = 4;
+    public float farScale = 2.0f;
+
+    // ===== STYLIZED GRASS MASTER TOGGLE =====
+    public const bool GRASS_ENABLED = true;
+    const int CacheVersion = 1;      // bump when the placement RULES in code change (settings/terrain changes are detected automatically)
+    const int ShardCount = 48;
+
+    GhibliNatureSet natureSet;
+    readonly List<GhibliBatch> batches = new List<GhibliBatch>();
+    readonly Plane[] planes = new Plane[6];
+    [SerializeField, HideInInspector] bool started;   // serialized: survives a script reload during Play
+    bool building;
+
+    void Start()
+    {
+        if (!GRASS_ENABLED) return;
+        if (!Application.isPlaying) return;
+        var ldr = FindFirstObjectByType<IslandRuntimeLoader>();
+        if (ldr != null && ldr.useBakedData && ldr.grassScatterData != null) return; // baked grass loaded by loader
+        started = true;
+        StartCoroutine(Reinit());
+    }
+    void OnEnable() { if (Application.isPlaying && started && batches.Count == 0 && !building) StartCoroutine(Reinit()); }
+
+    IEnumerator Reinit()
+    {
+        while (IslandBuilder.Instance == null || IslandBuilder.Instance.PathMap == null || IslandBuilder.HGrid == null) yield return null;
+        yield return null;
+        yield return StartCoroutine(Init());
+    }
+
+    // kept for the baked-data loader; baked grass is not used by the Ghibli package renderer
+    public void LoadBakedData(GrassScatterData data, Texture2D terrainColorTex)
+    {
+        if (!GRASS_ENABLED || started) return;
+        started = true;
+        StartCoroutine(Reinit());
+    }
+
+    [ContextMenu("Delete grass cache")]
+    void DeleteCache()
+    {
+        var fi = new System.IO.FileInfo(CacheFile());
+        if (fi.Exists) { fi.Delete(); Debug.Log("[IslandStylizedGrass] Removed " + fi.FullName); }
+    }
+    static string CacheFile() { return System.IO.Path.Combine(Application.persistentDataPath, "IslandGrassCache.bin"); }
+
+    // ------------------------------------------------------------------------------------------------ data
+    struct Clump { public float px, py, pz, yaw, s, sy; public byte piece; }
+
+    sealed class Job
+    {
+        // inputs (plain data only - workers never touch Unity objects)
+        public int seed, clumpCount, np, workers;
+        public float minH, maxH, minSlopeY, cliffM, minS, maxS, farScale;
+        public int farEvery;
+        public float[] pathMap, pieceW;
+        public ulong signature; public string cachePath; public bool useCache;
+        public GhibliBatch[] batches; public Vector3[] pads;
+        // outputs
+        public volatile bool done; public volatile string error;
+        public bool fromCache; public int accepted; public long attempts; public double scatterSec, buildSec;
+    }
+
+    // ------------------------------------------------------------------------------------------------ main-thread driver
+    IEnumerator Init()
+    {
+        building = true;
+        batches.Clear();
+        natureSet = usePackageAssets ? GhibliNatureSet.Load() : null;
+        if (natureSet == null || natureSet.grass.Count == 0) { Debug.LogError("[IslandStylizedGrass] GhibliNatureSet missing (run menu Island/Ghibli/Build Nature Set)"); building = false; yield break; }
+        var ib = IslandBuilder.Instance;
+        var mf = ib != null ? ib.GetComponent<MeshFilter>() : null;
+        if (mf == null || mf.sharedMesh == null) { Debug.LogError("[IslandStylizedGrass] Island mesh not built yet."); building = false; yield break; }
+
+        int np = natureSet.grass.Count;
+        // piece weights: Gras_01 40%, Gras_02 35%, Gras_03 25% (extra pieces share the remainder evenly)
+        var w = new float[np];
+        for (int i = 0; i < np; i++) w[i] = i == 0 ? 0.40f : (i == 1 ? 0.35f : 0.25f / Mathf.Max(1, np - 2));
+
+        // warm lazily-built statics here so the worker threads only ever READ them
+        Surface.RoadPathAt(0, 0); Hm(0, 0);
+
+        var j = new Job
+        {
+            seed = seed, clumpCount = clumpCount, np = np, minH = minHeight, maxH = maxHeight, minSlopeY = minSlopeY,
+            cliffM = cliffMarginMetres, minS = minScale, maxS = maxScale, farEvery = farEvery, farScale = farScale,
+            pathMap = ib.PathMap, pieceW = w, useCache = useDiskCache, cachePath = CacheFile(),
+            workers = workerThreads > 0 ? workerThreads : Mathf.Clamp(SystemInfo.processorCount - 2, 1, 16),
+            batches = new GhibliBatch[np], pads = new Vector3[np]
+        };
+        for (int i = 0; i < np; i++)
+        {
+            var pc = natureSet.grass[i];
+            j.batches[i] = new GhibliBatch(pc.mesh, pc.materials) { shadows = UnityEngine.Rendering.ShadowCastingMode.Off };
+            j.pads[i] = new Vector3(pc.MaxXZ * maxScale * 1.6f, pc.maxY * maxScale * 1.5f, pc.MaxXZ * maxScale * 1.6f);
+        }
+        j.signature = ComputeSignature(j);
+
+        var total = System.Diagnostics.Stopwatch.StartNew();
+        var th = new Thread(() => RunJob(j)) { IsBackground = true, Priority = System.Threading.ThreadPriority.BelowNormal, Name = "GrassJob" };
+        th.Start();
+        while (!j.done) yield return null;
+
+        if (j.error != null)
+        {
+            Debug.LogWarning("[IslandStylizedGrass] background grass build failed, using main-thread fallback:\n" + j.error);
+            j.error = null;
+            yield return StartCoroutine(MainThreadFallback(j));
+        }
+
+        foreach (var b in j.batches) batches.Add(b);
+        building = false;
+        Debug.Log("[IslandStylizedGrass] Ghibli package grass: " + j.accepted + " clumps ready in " + total.Elapsed.TotalSeconds.ToString("F2") + " s ("
+                  + (j.fromCache ? "disk cache" : "scatter " + j.scatterSec.ToString("F2") + " s on " + j.workers + " threads, attempts " + j.attempts)
+                  + ", chunk build " + j.buildSec.ToString("F2") + " s).");
+    }
+
+    IEnumerator MainThreadFallback(Job j)
+    {
+        var shards = new Clump[ShardCount][];
+        long att = 0;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        for (int k = 0; k < ShardCount; k++)
+        {
+            long a; shards[k] = ScatterShard(j, k, out a); att += a;
+            if (sw.Elapsed.TotalMilliseconds >= scatterBudgetMs) { yield return null; sw.Restart(); }
+        }
+        var all = Merge(shards);
+        BuildBatches(j, all, false);
+        j.accepted = all.Length; j.attempts = att; j.fromCache = false; j.workers = 1;
+    }
+
+    // ------------------------------------------------------------------------------------------------ worker side (no Unity object access below this line)
+    static void RunJob(Job j)
+    {
+        try
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            Clump[] all = j.useCache ? TryLoadCache(j) : null;
+            if (all != null) j.fromCache = true;
+            else
+            {
+                var shards = new Clump[ShardCount][];
+                int next = -1; long attemptsTotal = 0; string werr = null;
+                var threads = new Thread[j.workers];
+                for (int t = 0; t < threads.Length; t++)
+                {
+                    threads[t] = new Thread(() =>
+                    {
+                        try
+                        {
+                            long att = 0; int k;
+                            while ((k = Interlocked.Increment(ref next)) < ShardCount) { long a; shards[k] = ScatterShard(j, k, out a); att += a; }
+                            Interlocked.Add(ref attemptsTotal, att);
+                        }
+                        catch (System.Exception e) { werr = e.ToString(); }
+                    }) { IsBackground = true, Priority = System.Threading.ThreadPriority.BelowNormal, Name = "GrassScatter" };
+                    threads[t].Start();
+                }
+                foreach (var t in threads) t.Join();
+                if (werr != null) throw new System.Exception(werr);
+                all = Merge(shards);
+                j.attempts = attemptsTotal;
+                if (j.useCache) TrySaveCache(j, all);
+            }
+            j.scatterSec = sw.Elapsed.TotalSeconds; sw.Restart();
+            BuildBatches(j, all, true);
+            j.buildSec = sw.Elapsed.TotalSeconds;
+            j.accepted = all.Length;
+        }
+        catch (System.Exception e) { j.error = e.ToString(); }
+        finally { j.done = true; }
+    }
+
+    static Clump[] Merge(Clump[][] shards)
+    {
+        int n = 0; foreach (var s in shards) n += s.Length;
+        var all = new Clump[n]; int o = 0;
+        foreach (var s in shards) { System.Array.Copy(s, 0, all, o, s.Length); o += s.Length; }
+        return all;
+    }
+
+    static double PathSnap(float[] pm, double x, double z)    // same indexing as Surface.PathAt, on a snapshot of the map
+    {
+        if (pm == null) return 0;
+        int vi = Mathf.Clamp(Mathf.RoundToInt((float)((x + E) / S)), 0, N);
+        int vj = Mathf.Clamp(Mathf.RoundToInt((float)((z + E) / S)), 0, N);
+        return pm[vj * V + vi];
+    }
+
+    /// <summary>Scatter one fixed shard. Every test is ordered cheapest-first, and the final random acceptance draw
+    /// is made as early as the cheap density factor allows (later factors only ever lower the density, so the accept
+    /// probability is exactly the same as testing them all first).</summary>
+    static Clump[] ScatterShard(Job j, int k, out long attempts)
+    {
+        int quota = j.clumpCount / ShardCount + (k < j.clumpCount % ShardCount ? 1 : 0);
+        var rng = new System.Random(unchecked(j.seed * 7919 + k * 104729 + 17));
+        var list = new List<Clump>(quota);
+        long att = 0, guard = (long)quota * 80;
+        float m = j.cliffM, maxDropAllowed = m * 0.625f;   // tan(32deg) ~= 0.625
+        int np = j.np;
+        while (list.Count < quota && att++ < guard)
+        {
+            double x = (rng.NextDouble() * 2 - 1) * E;
+            double z = (rng.NextDouble() * 2 - 1) * E;
+            float h = Hm(x, z);                                   // rendered-mesh height: clumps sit on visible ground
+            if (h < j.minH || h > j.maxH) continue;
+            float ny = NVm(x, z).y;                               // rendered-mesh normal (cheap grid lookups)
+            if (ny < j.minSlopeY) continue;
+            double pth = PathSnap(j.pathMap, x, z);
+            var st = Surface.Classify(x, z, h, ny, pth);
+            double d0 = Surface.GrassDensity(st, h, ny, pth);
+            if (d0 <= 0) continue;
+            double u = rng.NextDouble();
+            if (u > d0) continue;
+            float hx1 = Hm(x + m, z), hx2 = Hm(x - m, z), hz1 = Hm(x, z + m), hz2 = Hm(x, z - m);
+            float maxDrop = Mathf.Max(Mathf.Max(Mathf.Abs(h - hx1), Mathf.Abs(h - hx2)), Mathf.Max(Mathf.Abs(h - hz1), Mathf.Abs(h - hz2)));
+            if (maxDrop > maxDropAllowed) continue;
+            double d = d0 * (1.0 - Surface.RoadPathAt(x, z));     // thin along real RoadBuild roads
+            if (u > d) continue;
+            d *= Surface.WetSuppression(x, z);                    // keep grass off damp riverbanks / lake edges
+            if (u > d) continue;
+
+            float r1 = (float)rng.NextDouble(), r2 = (float)rng.NextDouble(), r3 = (float)rng.NextDouble(), r4 = (float)rng.NextDouble();
+            int pi = 0; float acc = 0f;
+            for (; pi < np - 1; pi++) { acc += j.pieceW[pi]; if (r1 < acc) break; }
+            float s = Mathf.Lerp(j.minS, j.maxS, r2);
+            Vector3 p = U(x, h - 0.03, z);
+            list.Add(new Clump { px = p.x, py = p.y, pz = p.z, yaw = r3 * 6.2831853f, s = s, sy = s * (0.85f + 0.4f * r4), piece = (byte)pi });
+        }
+        attempts = att;
+        return list.ToArray();
+    }
+
+    static Matrix4x4 MakeMatrix(Clump c)   // T * Ry(yaw) * S(s, sy, s), identical to Matrix4x4.TRS(pos, Euler(0,yaw,0), scale) but engine-call free
+    {
+        float cs = Mathf.Cos(c.yaw) * c.s, sn = Mathf.Sin(c.yaw) * c.s;
+        var m = new Matrix4x4();
+        m.m00 = cs; m.m02 = sn; m.m20 = -sn; m.m22 = cs; m.m11 = c.sy;
+        m.m03 = c.px; m.m13 = c.py; m.m23 = c.pz; m.m33 = 1f;
+        return m;
+    }
+
+    static void BuildBatches(Job j, Clump[] all, bool threaded)
+    {
+        var counts = new int[j.np];
+        for (int i = 0; i < all.Length; i++) counts[all[i].piece]++;
+        string err = null;
+        System.Action<int> one = pi =>
+        {
+            try
+            {
+                var list = new List<Matrix4x4>(counts[pi] + 4);
+                for (int i = 0; i < all.Length; i++) if (all[i].piece == pi) list.Add(MakeMatrix(all[i]));
+                j.batches[pi].Build(list, 64f, j.pads[pi], j.farEvery, j.farScale);
+            }
+            catch (System.Exception e) { err = e.ToString(); }
+        };
+        if (threaded)
+        {
+            var ths = new Thread[j.np];
+            for (int p = 0; p < j.np; p++) { int pi = p; ths[p] = new Thread(() => one(pi)) { IsBackground = true, Name = "GrassBuild" }; ths[p].Start(); }
+            foreach (var t in ths) t.Join();
+        }
+        else for (int p = 0; p < j.np; p++) one(p);
+        if (err != null) throw new System.Exception(err);
+    }
+
+    // ------------------------------------------------------------------------------------------------ disk cache
+    const int CacheMagic = 0x53415247;   // 'GRAS'
+
+    static Clump[] TryLoadCache(Job j)
+    {
+        try
+        {
+            if (!System.IO.File.Exists(j.cachePath)) return null;
+            using (var fs = new System.IO.FileStream(j.cachePath, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.Read, 1 << 16))
+            using (var br = new System.IO.BinaryReader(fs))
+            {
+                if (br.ReadInt32() != CacheMagic || br.ReadUInt64() != j.signature) return null;
+                int n = br.ReadInt32();
+                if (n <= 0 || n > 20000000) return null;
+                var arr = new Clump[n];
+                for (int i = 0; i < n; i++)
+                {
+                    arr[i].px = br.ReadSingle(); arr[i].py = br.ReadSingle(); arr[i].pz = br.ReadSingle();
+                    arr[i].yaw = br.ReadSingle(); arr[i].s = br.ReadSingle(); arr[i].sy = br.ReadSingle();
+                    arr[i].piece = br.ReadByte();
+                }
+                return arr;
+            }
+        }
+        catch { return null; }
+    }
+
+    static void TrySaveCache(Job j, Clump[] all)
+    {
+        try
+        {
+            string tmp = j.cachePath + ".tmp";
+            using (var fs = new System.IO.FileStream(tmp, System.IO.FileMode.Create, System.IO.FileAccess.Write, System.IO.FileShare.None, 1 << 16))
+            using (var bw = new System.IO.BinaryWriter(fs))
+            {
+                bw.Write(CacheMagic); bw.Write(j.signature); bw.Write(all.Length);
+                for (int i = 0; i < all.Length; i++)
+                {
+                    var c = all[i];
+                    bw.Write(c.px); bw.Write(c.py); bw.Write(c.pz); bw.Write(c.yaw); bw.Write(c.s); bw.Write(c.sy); bw.Write(c.piece);
+                }
+            }
+            if (System.IO.File.Exists(j.cachePath)) System.IO.File.Replace(tmp, j.cachePath, null);
+            else System.IO.File.Move(tmp, j.cachePath);
+        }
+        catch { /* cache is best-effort */ }
+    }
+
+    /// <summary>Hash of every setting that shapes the scatter + a fingerprint of the terrain, roads, rivers and path map.</summary>
+    ulong ComputeSignature(Job j)
+    {
+        ulong h = 1469598103934665603UL;
+        void Mix(long v) { unchecked { h ^= (ulong)v; h *= 1099511628211UL; } }
+        void MixF(float f) { Mix(System.BitConverter.SingleToInt32Bits(f)); }
+        Mix(CacheVersion); Mix(j.seed); Mix(j.clumpCount); Mix(j.np); Mix(ShardCount);
+        MixF(j.minH); MixF(j.maxH); MixF(j.minSlopeY); MixF(j.cliffM); MixF(j.minS); MixF(j.maxS);
+        foreach (var pw in j.pieceW) MixF(pw);
+        Mix(RoadBuild.Hash); Mix(RiverCarve.Hash); Mix(MirrorZ ? 1 : 0);
+        Mix(RiversOn ? 1 : 0); Mix(RoadsOn ? 1 : 0); Mix(PadsOn ? 1 : 0);
+        const int G = 48; double step = 2 * E / G;
+        for (int gz = 0; gz < G; gz++)
+            for (int gx = 0; gx < G; gx++)
+            {
+                double x = -E + (gx + 0.5) * step, z = -E + (gz + 0.5) * step;
+                Mix((long)(Hm(x, z) * 20f));
+                if ((gx + gz) % 3 == 0) { Mix((long)(Surface.RoadPathAt(x, z) * 100)); Mix((long)(RiverCarve.WetAt(x, z) * 100)); }
+            }
+        if (j.pathMap != null) { Mix(j.pathMap.Length); for (int i = 0; i < j.pathMap.Length; i += 257) Mix((long)(j.pathMap[i] * 1000f)); }
+        return h;
+    }
+
+    void Update()
+    {
+        if (batches.Count == 0) return;
+        var cam = Camera.main; if (cam == null) return;
+        GeometryUtility.CalculateFrustumPlanes(cam, planes);
+        Vector3 cp = cam.transform.position;
+        foreach (var b in batches) b.Draw(cp, planes, maxRenderDistance, nearDistance, 0f);
+    }
+}

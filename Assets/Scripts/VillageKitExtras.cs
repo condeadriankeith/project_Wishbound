@@ -42,7 +42,9 @@ public static class VillageKitExtras
         P("HandleL", Box, dark, body, new Vector3(-.28f, .2f, -.9f), new Vector3(.06f, .06f, .9f));
         P("HandleR", Box, dark, body, new Vector3(.28f, .2f, -.9f), new Vector3(.06f, .06f, .9f));
         P("Wheel", VillageKit.Ring(12, .3f), dark, body, new Vector3(0, .12f, .62f), new Vector3(.24f, .07f, .24f), Quaternion.Euler(0, 0, 90));
-        r.AddComponent<BoxCollider>().size = new Vector3(1, .8f, 1.6f);
+        var collider = r.AddComponent<BoxCollider>();
+        collider.center = new Vector3(0, .4f, -.18f);
+        collider.size = new Vector3(1, .8f, 2.35f);
         return r;
     }
 
@@ -51,13 +53,14 @@ public static class VillageKitExtras
     {
         var rng = new System.Random(seed);
         var r = Root("ClayPots", pos, (float)rng.NextDouble() * 360, parent); var t = r.transform;
-        var clay = VillageKit.Mat(new Color(.7f, .42f, .28f)); var clayD = VillageKit.Mat(new Color(.55f, .32f, .22f));
-        int n = 3 + rng.Next(3);
-        for (int i = 0; i < n; i++)
-        {
-            float s = Mathf.Lerp(.16f, .26f, (float)rng.NextDouble());
-            P("Pot", VillageKit.Ring(9, .82f), i % 2 == 0 ? clay : clayD, t, new Vector3((i % 3) * .34f - .3f, i >= 3 ? .3f : 0, (i / 3) * .1f), new Vector3(s, s * 1.2f, s));
-        }
+        VillageCraft.Pot(t,new Vector3(-.39f,0,-.18f),0);
+        VillageCraft.Pot(t,new Vector3(.40f,0,-.18f),1);
+        VillageCraft.Pot(t,new Vector3(0,0,.45f),2);
+        for (int i=0;i<3;i++)
+            foreach(int side in new[]{-1,1})
+                P("Crate slat",Box,VillageKit.Mat(VillageKit.Timber),t,new Vector3(0,.05f+i*.09f,side*.57f),new Vector3(1.48f,.068f,.04f));
+        foreach(int side in new[]{-1,1})
+            P("Crate end",Box,VillageKit.Mat(VillageKit.TimberDark),t,new Vector3(side*.73f,.13f,0),new Vector3(.055f,.25f,1.16f));
         return r;
     }
 
@@ -107,28 +110,8 @@ public static class VillageKitExtras
     public static GameObject Footbridge(Vector3 a, Vector3 b, Transform parent)
     {
         a = VillageKit.Ground(a); b = VillageKit.Ground(b);
-        var r = new GameObject("Footbridge"); r.transform.SetParent(parent, false); r.AddComponent<VillageKitPiece>();
-        Vector3 d = b - a; float len = new Vector2(d.x, d.z).magnitude; var rot = Quaternion.LookRotation(new Vector3(d.x, 0, d.z));
-        var wood = VillageKit.Mat(VillageKit.Timber); var dark = VillageKit.Mat(VillageKit.TimberDark);
-        int planks = Mathf.RoundToInt(len / .32f);
-        for (int i = 0; i < planks; i++)
-        {
-            float k = (i + .5f) / planks; Vector3 p = Vector3.Lerp(a, b, k) + Vector3.up * (.3f + Mathf.Sin(k * Mathf.PI) * .45f);
-            var pl = P("Plank", Box, i % 3 == 0 ? dark : wood, r.transform, Vector3.zero, new Vector3(1.3f, .08f, .28f)); pl.transform.position = p; pl.transform.rotation = rot * Quaternion.Euler(Mathf.Cos(k * Mathf.PI) * -20, 0, 0);
-            pl.AddComponent<BoxCollider>();
-            if (i % 4 == 0) foreach (float s in new[] { -.65f, .65f })
-                {
-                    var post = P("RailPost", Box, dark, r.transform, Vector3.zero, new Vector3(.08f, .7f, .08f)); post.transform.position = p + rot * new Vector3(s, .35f, 0);
-                }
-        }
-        foreach (float s in new[] { -.65f, .65f })
-            for (int i = 0; i < 6; i++)
-            {
-                float k0 = i / 6f, k1 = (i + 1) / 6f;
-                Vector3 p0 = Vector3.Lerp(a, b, k0) + Vector3.up * (1f + Mathf.Sin(k0 * Mathf.PI) * .45f) + rot * new Vector3(s, 0, 0);
-                Vector3 p1 = Vector3.Lerp(a, b, k1) + Vector3.up * (1f + Mathf.Sin(k1 * Mathf.PI) * .45f) + rot * new Vector3(s, 0, 0);
-                var rail = P("Rail", Box, wood, r.transform, Vector3.zero, new Vector3(.07f, .07f, Vector3.Distance(p0, p1) + .05f)); rail.transform.position = (p0 + p1) * .5f; rail.transform.rotation = Quaternion.LookRotation(p1 - p0);
-            }
+        var r = IslandDeckBridge.Between("Footbridge", a, b, 2.2f, parent, .35f);
+        r.AddComponent<VillageKitPiece>();
         return r;
     }
 

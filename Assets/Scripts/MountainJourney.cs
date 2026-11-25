@@ -4,25 +4,38 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 
 /// <summary>Small, sequential mountain quests using the existing island roads and companion.</summary>
-public sealed class MountainJourney : MonoBehaviour
+public sealed partial class MountainJourney : MonoBehaviour
 {
     public static MountainJourney Instance { get; private set; }
-    public enum Step { Parcel, Crossing, Delivery, Prisms, Vines, Water, Garden, LastFragment, Hearth, Pebbles, Stones, Music, Seal, Murals, Wish, LeaveBeam, Altar, Home, Complete }
+    public enum Step { Parcel, Garden, LastFragment, Hearth, Murals, Wish, SummitBench, Complete }
     public Step Current { get; private set; }
     public Vector3 Destination { get; private set; }
-    public bool Busy { get; private set; }
-    Transform star, child, parcel, bucket, lastFragment, altar, seal, beam;
-    Vector3 home, ferry, farBank, garden, spring, summit, canyon;
-    readonly List<GameObject> bridges = new List<GameObject>();
-    readonly List<Transform> prisms = new List<Transform>();
-    readonly List<GameObject> vines = new List<GameObject>();
-    readonly List<Transform> crops = new List<Transform>();
+    public bool Busy { get => busy || (ride && ride.Active); private set => busy = value; }
+    bool busy;
+    public bool Ready => star && hint;
+    public event System.Action<Step> ObjectiveChanged;
+    public Vector3 GuideDestination
+    {
+        get
+        {
+            if (Current == Step.Garden || Current == Step.Murals || Current == Step.Wish ||
+                Current == Step.LastFragment || Current == Step.SummitBench)
+                return trailGuide;
+            return Destination;
+        }
+    }
+    Transform star, child, mural, altar;
+    Vector3 home, garden, summit, canyon, observatory, benchPosition, benchForward;
+    RoadNet.RoadPath summitRoad;
+    Vector3[] summitTrail;
+    Vector3 trailGuide;
+    float nextTrailGuide;
     UnityEngine.UI.Text hint;
-    CanvasGroup hintGroup;
-    float held, cooldown, baseRadiance = 1f;
-    int count;
-    bool tether, dimmed, sawWish;
-    Material stone, wood, glow, green;
+    CanvasGroup hintGroup, travelPrompt;
+    MountainStarRide ride;
+
+    bool tether;
+    Material wood, glow;
     CutsceneDirector director;
 
     public static void Begin(StarAlignment path)
@@ -30,6 +43,7 @@ public sealed class MountainJourney : MonoBehaviour
         if (Instance || path == StarAlignment.None) return;
         var go = new GameObject("Mountain journey");
         var journey = go.AddComponent<MountainJourney>();
+        Instance = journey;
         journey.tether = path == StarAlignment.Tether;
     }
 
@@ -38,37 +52,273 @@ public sealed class MountainJourney : MonoBehaviour
         Instance = this;
         while (!ChildEncounter.Instance || !ChildEncounter.Instance.Child || !VillageDressing.Instance || !VillageDressing.Instance.Built || RoadNet.Paths.Count == 0) yield return null;
         star = ChildEncounter.Instance.star; child = ChildEncounter.Instance.Child.transform;
-        home = VillageDressing.Instance.Well.position;
-        stone=VillageKit.Mat(new Color(.43f,.45f,.48f)); wood=VillageKit.Mat(new Color(.38f,.24f,.13f));
-        glow=VillageKit.Mat(new Color(.9f,.75f,.38f),new Color(1f,.65f,.2f)); green=VillageKit.Mat(new Color(.38f,.62f,.29f));
+        var village = VillageDressing.Instance;
+        home = village.Well ? village.Well.position : Ground(child.position);
+        wood=VillageKit.Mat(new Color(.38f,.24f,.13f));
+        glow=VillageKit.Mat(new Color(.9f,.75f,.38f),new Color(1f,.65f,.2f));
         var cottage = FindFirstObjectByType<CottageChoiceScene>();
         Vector3 start = cottage ? cottage.Cottage.position : home;
-        var main = RoadNet.Paths.Find(p => p.main) ?? RoadNet.Paths[0];
-        int startIndex = RoadIndexNearest(main, start);
-        int ferryIndex = Mathf.Clamp(startIndex + Mathf.RoundToInt(main.x.Length * .03f), 0, main.x.Length - 1);
-        ferry = Ground(RoadPosition(main, ferryIndex));
-        int farBankIndex = Mathf.Clamp(ferryIndex + Mathf.Max(5, Mathf.RoundToInt(main.x.Length * .025f)), 0, main.x.Length - 1);
-        farBank = Ground(RoadPosition(main, farBankIndex));
+        var main = RoadNet.Paths[0];
+        float nearestRoad = float.PositiveInfinity;
+        foreach (var road in RoadNet.Paths)
+        {
+            if (road.x.Length < 2) continue;
+            float distance = (RoadPosition(road, RoadIndexNearest(road, start)) - start).sqrMagnitude;
+            if (distance < nearestRoad) { nearestRoad = distance; main = road; }
+        }
+        summitRoad = RoadNet.Paths.Find(road => road.main && road.endCell == RoadNet.SummitCell)
+            ?? RoadNet.Paths.Find(road => road.main) ?? main;
+        summitTrail = new Vector3[summitRoad.x.Length];
+        for (int i = 0; i < summitTrail.Length; i++) summitTrail[i] = Ground(RoadPosition(summitRoad, i));
+        int trailStart = NearestTrailIndex(start);
+        int trailEnd = summitRoad.x.Length - 1;
+        garden = RouteAnchor("Garden", TrailPoint(trailStart, trailEnd, .28f));
 
-        int gardenIndex = Mathf.Clamp(Mathf.RoundToInt((main.x.Length - 1) * .58f), ferryIndex + 1, main.x.Length - 1);
-        garden = Ground(RoadPosition(main, gardenIndex));
-        spring = Ground(RoadSide(main, Mathf.Clamp(gardenIndex - Mathf.RoundToInt(main.x.Length * .04f), 0, main.x.Length - 1), 7f));
-        summit=Ground(new Vector3((float)RoadNet.SummitX,0,TerrainMath.MirrorZ?-(float)RoadNet.SummitZ:(float)RoadNet.SummitZ));
-        canyon=RoadPoint(.73f);
-        BuildPlaces();
+        canyon = RouteAnchor("Mural", TrailPoint(trailStart, trailEnd, .24f));
+        observatory = RouteAnchor("Observatory", TrailPoint(trailStart, trailEnd, .67f));
+        Vector3 peak = Ground(TerrainMath.U(RoadNet.SummitX, RoadNet.SummitH, RoadNet.SummitZ));
+        summit = RouteAnchor("Summit overlook", tether ? peak : FindSummitOverlook(peak));
+        home = RouteAnchor("Village well", home);
+        if (!tether)
+        {
+            yield return IslandStroll(trailStart, trailEnd);
+            yield break;
+        }
+        BuildFragmentStops();
         hint=WishboundUI.Label(null,"Journey hint","",28,new Vector2(.5f,.08f),new Vector2(1400,90));
         hintGroup=hint.GetComponent<CanvasGroup>();
-        Current=tether?Step.Parcel:Step.Hearth;
+        var transport = WishboundUI.Label(null, "Star ride prompt", "Press Tab to travel to the next task",
+            30, new Vector2(1, 0), new Vector2(590, 52));
+        transport.alignment = TextAnchor.MiddleRight;
+        transport.rectTransform.pivot = new Vector2(1, 0);
+        transport.rectTransform.anchoredPosition = new Vector2(-42, 34);
+        travelPrompt = transport.GetComponent<CanvasGroup>();
+        ride = gameObject.AddComponent<MountainStarRide>();
+        ride.Bind(child, star);
+        Current = StoryFlags.Get("GardenFragmentRecovered") ? Step.LastFragment :
+            StoryFlags.Get("ParcelFragmentRecovered") ? Step.Garden : Step.Parcel;
+        if (Current!=Step.Parcel) parcelFragment.gameObject.SetActive(false);
+        if (Current==Step.LastFragment) gardenFragment.gameObject.SetActive(false);
+        dispatched = StoryFlags.Get("SeedsRequested");
+        parcelChosen = StoryFlags.Get("SeedsPacked");
+        carryingParcel = parcelChosen && !StoryFlags.Get("SeedsDelivered");
+        gardenWatered = StoryFlags.Get("VinesWatered");
+        carryingWater = !gardenWatered && StoryFlags.Get("WaterCollected");
+        if (parcelChosen && !carryingParcel) spareParcel.position=doorstep;
+        if (gardenWatered) foreach (var vine in harvest) vine.localScale=Vector3.one;
+        var fx=star.GetComponentInChildren<StarOrbFX>();
+        if (fx && Current!=Step.Parcel) fx.FragmentPower += Current==Step.LastFragment ? 2 : 1;
         SetDestination();
-        WhisperLine.Show(child,tether?"The ferry keeper left a parcel. Let's take it up together.":"Then stay a while. We can start with something small.",5f);
+        UpdateTrailGuide();
+        if (Current==Step.Parcel && !dispatched) yield return PreviewFragments();
+        else if (Current==Step.Parcel) Destination=carryingParcel ? doorstep : parcel.position;
+        else if (Current==Step.Garden && (carryingWater || gardenWatered)) Destination=gardenWatered ? canHome : garden;
     }
 
-    Vector3 RoadPoint(float portion)
+    IEnumerator IslandStroll(int trailStart, int trailEnd)
     {
-        var road=RoadNet.Paths.Find(p=>p.main)??RoadNet.Paths[0];
-        int i=Mathf.Clamp(Mathf.RoundToInt((road.x.Length-1)*portion),0,road.x.Length-1);
-        return Ground(new Vector3((float)road.x[i],0,TerrainMath.MirrorZ?-(float)road.z[i]:(float)road.z[i]));
+        Busy = true;
+        director = CutsceneDirector.Begin();
+        CutsceneSkip.Begin(() => skipCut = true);
+        var follow = child.GetComponent<ProceduralFollow>();
+        if (follow) follow.enabled = false;
+        foreach (var actor in new[] {child,star})
+        {
+            var controller = actor.GetComponent<CharacterController>();
+            if (controller) controller.enabled = false;
+        }
+        var performer = child.GetComponent<ChildPerformer>();
+        if (performer) { performer.Seated = false; performer.Act(ChildEmotion.Curious,star); }
+        int index = Mathf.RoundToInt(Mathf.Lerp(trailStart,trailEnd,.33f));
+        int direction = trailEnd >= trailStart ? 1 : -1;
+        var nearby = new Collider[96];
+        int bestTrees = 0;
+        for (int sample=1;sample<=20;sample++)
+        {
+            int candidate = Mathf.RoundToInt(Mathf.Lerp(trailStart,trailEnd,sample/24f));
+            int count = Physics.OverlapSphereNonAlloc(summitTrail[candidate],12f,nearby,~0,QueryTriggerInteraction.Ignore);
+            int trees = 0;
+            for(int i=0;i<count;i++) if(nearby[i].name=="TreeColliders") trees++;
+            if(trees>bestTrees) { index=candidate; bestTrees=trees; }
+        }
+        Vector3 path = summitTrail[index];
+        Vector3 forward = FlatDirection(path,summitTrail[Mathf.Clamp(index+direction,0,summitTrail.Length-1)]);
+        Vector3 side = Vector3.Cross(Vector3.up,forward);
+        child.rotation = Quaternion.LookRotation(forward);
+        Speak("Child: Gran says the trees remember the sea. Here. Put your ear where mine is.");
+        yield return StoryShot(7f,t =>
+        {
+            child.position = Ground(path + forward * (t*8f));
+            star.position = Ground(child.position + side*.9f) + Vector3.up*(.09f*Mathf.Sin(t*12f));
+            var focus = child.position + side*.42f + Vector3.up;
+            director.TrackFrame(focus+side*3.3f+forward*1.5f+Vector3.up*.45f,focus,43);
+        });
+        yield return GlowReply(3.6f);
+        Speak("Child: A woodpecker. Gran used to knock back with her stick. Drove him mad.");
+        if (performer) performer.Act(ChildEmotion.Shy,star);
+        yield return Beat(4.5f);
+
+        Vector3 door = HouseDoor(child.position,-1,out _,out _);
+        Vector3 porch = ClearStage(door,8f,.85f);
+        forward = FlatDirection(porch,path);
+        side = Vector3.Cross(Vector3.up,forward);
+        var teller = BuildActor("The lantern keeper",porch,forward,SettlerBrain.Role.Wanderer,817,true);
+        if (teller) { teller.pose = SettlerRig.Pose.Wave; teller.lookPoint = porch+forward*2f+Vector3.up; }
+        ClearSpeech();
+        yield return StoryShot(3.5f,t =>
+        {
+            child.position = Ground(porch+forward*Mathf.Lerp(5f,1.7f,t));
+            child.rotation = Quaternion.LookRotation(-forward);
+            star.position = Ground(child.position+side*.85f);
+            var focus = Vector3.Lerp(child.position,porch,.45f)+Vector3.up;
+            director.TrackFrame(focus + side*4.5f + forward*1.4f + Vector3.up*.5f,focus,43);
+        });
+        if (performer && teller) performer.Act(ChildEmotion.Curious,teller.transform);
+        if (teller) teller.pose = SettlerRig.Pose.Talk;
+        Speak("Keeper: My mother lit that window for the fishing boats. One foggy night the wick went out.");
+        yield return Beat(6.8f);
+        Speak("Keeper: Across the water, every house lit a candle. She always swore the island winked at her.");
+        yield return Beat(7f);
+        if (teller) teller.pose = SettlerRig.Pose.Idle;
+        Speak("Child: Gran tells it the other way round. She says the boats winked first.");
+        yield return Beat(5.3f);
+        Speak("Keeper: She was in one of them. I suppose she ought to know.");
+        yield return Beat(4.8f);
+
+        BuildSummitBench(VillageKit.ChamferBox());
+        side = Vector3.Cross(Vector3.up,benchForward);
+        child.SetPositionAndRotation(summit+side*.43f+Vector3.up*.22f,Quaternion.LookRotation(benchForward));
+        star.position = summit-side*.52f+Vector3.up*.32f;
+        if (performer) { performer.Seated = true; performer.Act(ChildEmotion.Warm,star); }
+        var seats = (child.position+star.position)*.5f+Vector3.up*.72f;
+        director.Cut(seats+benchForward*3.7f+side*2.2f,seats,39);
+        yield return GlowReply(3.8f);
+        Speak("Child: We take turns. Tomorrow's mine. Will you get up early with me?");
+        yield return Beat(5.1f);
+        yield return GlowReply(4.9f);
+        ClearSpeech();
+        yield return StoryShot(5f,t=>director.TrackFrame(seats+benchForward*(3.7f+t*2f)+side*(2.2f+t)+Vector3.up*t,seats,42f));
+        // Match the promise on the bench to the same pair on tomorrow's doorstep.
+        var day = FindFirstObjectByType<LivingDayNight>();
+        if (day) { day.scripted = true; day.scriptedHour = 5.7f; }
+        forward = FlatDirection(porch,path);
+        side = Vector3.Cross(Vector3.up,forward);
+        if (performer) { performer.Seated = false; performer.Act(ChildEmotion.Warm,star); }
+        if (teller) teller.pose = SettlerRig.Pose.Wave;
+        child.rotation = Quaternion.LookRotation(-forward);
+        Speak("Child: You got here before me.");
+        yield return StoryShot(5f,t =>
+        {
+            child.position = Ground(porch + forward*(4f-2.4f*t));
+            star.position = Ground(porch + forward*1.55f + side*.85f);
+            Vector3 focus = (child.position+star.position)*.5f + Vector3.up;
+            director.TrackFrame(focus+side*3f+forward*1.8f+Vector3.up*.35f,focus,39f);
+        });
+        yield return GlowReply(4.8f);
+        if (teller) teller.pose = SettlerRig.Pose.Talk;
+        Speak("Keeper: Two on watch! Then I can put the kettle on.");
+        yield return Beat(4.6f);
+        if (performer) performer.Act(ChildEmotion.Wave,star);
+        Speak("Child: Look down there. The first boat saw us.");
+        yield return Beat(4.4f);
+        ClearSpeech();
+        Vector3 dawnFocus = (child.position+star.position)*.5f + Vector3.up;
+        yield return StoryShot(6f,t =>
+        {
+            if (day) day.scriptedHour = Mathf.Lerp(5.7f,6.5f,t);
+            director.TrackFrame(dawnFocus+side*(3f+t*3f)+forward*(1.8f+t)+Vector3.up*(.35f+t*1.3f),dawnFocus,41f);
+        });
+        CutsceneSkip.End();
+        StoryFlags.Set("RootsEnding");
+        Current = Step.Complete;
+        yield return FadeFinale();
+        WishboundIntro.QueueFinaleTitle();
+        StoryFlags.NewDemoRun();
+        yield return UnityEngine.SceneManagement.SceneManager.LoadSceneAsync(UnityEngine.SceneManagement.SceneManager.GetActiveScene().path);
     }
+
+    Vector3 TrailPoint(int start, int end, float fraction)
+    {
+        return summitTrail[Mathf.RoundToInt(Mathf.Lerp(start, end, fraction))];
+    }
+
+    Vector3 FindSummitOverlook(Vector3 peak)
+    {
+        var overlap = new Collider[24];
+        for (float radius = 6f; radius <= 24f; radius += 2f)
+        {
+            for (int i = 0; i < 16; i++)
+            {
+                float angle = i * Mathf.PI / 8f;
+                var outward = new Vector3(Mathf.Cos(angle), 0, Mathf.Sin(angle));
+                var side = Vector3.Cross(Vector3.up, outward);
+                Vector3 ground = Ground(peak + outward * radius);
+                if (Mathf.Abs(peak.y - ground.y) > 6f ||
+                    Mathf.Abs(Ground(ground + side).y - Ground(ground - side).y) > .28f) continue;
+                int hits = Physics.OverlapBoxNonAlloc(ground + Vector3.up, new Vector3(1.7f,.85f,1.3f),
+                    overlap, Quaternion.LookRotation(outward), ~0, QueryTriggerInteraction.Ignore);
+                bool obstructed = hits == overlap.Length;
+                for (int k = 0; k < hits && !obstructed; k++)
+                    obstructed = !TerrainProbe.IsTerrain(overlap[k]);
+                if (obstructed) continue;
+                Vector3 focus = ground + Vector3.up * .8f;
+                if (!CutsceneDirector.ClearShot(ground + outward * 3.4f + side * 3 + Vector3.up * 1.5f, focus) ||
+                    !CutsceneDirector.ClearShot(ground + outward * 1.8f + side * 3.8f + Vector3.up * 1.55f, focus)) continue;
+                benchForward = outward;
+                return ground;
+            }
+        }
+        benchForward = Vector3.forward;
+        Debug.LogWarning("No clear summit overlook found for the current island layout.");
+        return peak + Vector3.forward * 6f;
+    }
+
+    int NearestTrailIndex(Vector3 position)
+    {
+        int closest = 0;
+        float nearest = float.PositiveInfinity;
+        for (int i = 0; i < summitTrail.Length; i++)
+        {
+            float distance = (summitTrail[i] - position).sqrMagnitude;
+            if (distance >= nearest) continue;
+            closest = i;
+            nearest = distance;
+        }
+        return closest;
+    }
+
+    void UpdateTrailGuide()
+    {
+        if (Time.time < nextTrailGuide) return;
+        nextTrailGuide = Time.time + .35f;
+        if (summitTrail == null || Vector3.Distance(star.position, Destination) < 12f)
+        {
+            trailGuide = Destination;
+            return;
+        }
+        int from = NearestTrailIndex(star.position);
+        int to = NearestTrailIndex(Destination);
+        var join = summitTrail[from];
+        if (Vector3.Distance(star.position, join) > 12f) { trailGuide = join; return; }
+        int direction = to >= from ? 1 : -1;
+        float distance = 0f;
+        int next = from;
+        while (next != to && distance < 14f)
+        {
+            distance += Vector3.Distance(summitTrail[next], summitTrail[next + direction]);
+            next += direction;
+        }
+        trailGuide = next == to ? Destination : summitTrail[next];
+    }
+
+    Vector3 RouteAnchor(string name, Vector3 position)
+    {
+        var anchor = new GameObject(name + " quest anchor").transform;
+        anchor.SetParent(transform, false);
+        anchor.position = Ground(position);
+        return anchor.position;
+    }
+
     static int RoadIndexNearest(RoadNet.RoadPath road, Vector3 point)
     {
         int best = 0;
@@ -77,7 +327,6 @@ public sealed class MountainJourney : MonoBehaviour
         {
             Vector3 p = new Vector3((float)road.x[i], 0, TerrainMath.MirrorZ ? -(float)road.z[i] : (float)road.z[i]);
             float d = (p - point).sqrMagnitude;
-            d += i < 2 || i > road.x.Length - 3 ? 500f : 0f;
             if (d < bestDistance) { bestDistance = d; best = i; }
         }
         return best;
@@ -86,17 +335,6 @@ public sealed class MountainJourney : MonoBehaviour
     {
         index = Mathf.Clamp(index, 0, road.x.Length - 1);
         return new Vector3((float)road.x[index], 0, TerrainMath.MirrorZ ? -(float)road.z[index] : (float)road.z[index]);
-    }
-    static Vector3 RoadSide(RoadNet.RoadPath road, int index, float sideDistance)
-    {
-        int before = Mathf.Max(0, index - 1);
-        int after = Mathf.Min(road.x.Length - 1, index + 1);
-        Vector3 forward = RoadPosition(road, after) - RoadPosition(road, before);
-        forward.y = 0;
-        if (forward.sqrMagnitude < .01f) forward = Vector3.forward;
-        forward.Normalize();
-        Vector3 side = Vector3.Cross(Vector3.up, forward).normalized;
-        return RoadPosition(road, index) + side * sideDistance;
     }
     static Vector3 Ground(Vector3 p) { p.y=TerrainProbe.GroundY(p.x,p.z,p.y); return p; }
     GameObject Part(string name, Mesh mesh, Material mat, Vector3 at, Vector3 scale, bool solid=false, Transform parent=null)
@@ -107,224 +345,383 @@ public sealed class MountainJourney : MonoBehaviour
         if(solid) { var c=g.AddComponent<MeshCollider>(); c.sharedMesh=mesh; }
         return g;
     }
+    Vector3[] echoSites;
+    int foundEcho = -1;
+    bool SeekEcho(int index, string clue)
+    {
+        if (foundEcho == index) return false;
+        foundEcho = index;
+        Destination = echoSites[index];
+        WhisperLine.Show(child,clue,6);
+        return true;
+    }
     void BuildPlaces()
     {
         var box=VillageKit.ChamferBox();
-        parcel=Part("Ferry parcel",box,wood,ferry+Vector3.up*.32f,Vector3.one*.5f).transform;
-        Part("Parcel ribbon",box,glow,ferry+Vector3.up*.33f,new Vector3(.52f,.07f,.52f),false,parcel);
-        for(int i=0;i<6;i++)
+        echoSites = new Vector3[3];
+        mural = Authored("ShadowStone0", canyon);
+        mural.name = "Old trail marker";
+        mural.localScale = new Vector3(1.4f, 1.2f, 1.4f);
+        altar = Authored("ObservatoryAltar", observatory);
+        Vector3[] landmarks = { home, canyon, observatory };
+        string[] tokens = { "Well bell clapper", "Chipped waystone", "Lantern wick" };
+        for (int i=0;i<3;i++)
         {
-            Vector3 p=Vector3.Lerp(ferry,farBank,(i+1)/7f);
-            bridges.Add(Part("Shadow stepping stone",box,stone,p+Vector3.up*.12f,new Vector3(1.35f,.22f,1.8f),true));
+            Vector3 dir = FlatDirection(landmarks[i],landmarks[(i+1)%3]);
+            echoSites[i] = ClearStage(landmarks[i]+dir*(6+i*2),7,.6f);
+            Part(tokens[i],VillageKit.Blob(114+i,.16f,4,7),wood,echoSites[i]+Vector3.up*.33f,new Vector3(.30f,.55f,.24f));
+            Part("Remembered light",VillageKit.Blob(86,.05f,3,8),glow,echoSites[i]+Vector3.up*.63f,Vector3.one*.10f);
         }
-        for(int i=0;i<3;i++)
-        {
-            Vector3 p=Ground(garden+new Vector3((i-1)*2.5f,0,-3));
-            var prism=Part("Thaw prism "+(i+1),VillageKit.Blob(70+i,0,3,4),glow,p+Vector3.up*.85f,new Vector3(.35f,.75f,.35f)).transform;
-            prism.rotation=Quaternion.Euler(0,120+i*45,0);prisms.Add(prism);
-            Part("Prism pointer",box,wood,p+Vector3.up*.85f+prism.forward*.5f,new Vector3(.08f,.08f,.8f),false,prism);
-            var line=prism.gameObject.AddComponent<LineRenderer>();line.sharedMaterial=glow;line.positionCount=2;line.startWidth=line.endWidth=.035f;
-        }
-        Part("Frost seedbed",box,stone,garden,new Vector3(5,.15f,3),true);
-        for(int i=0;i<6;i++)
-        {
-            var p=garden+new Vector3((i%3-1)*1.2f,.2f,(i/3-.5f)*1.2f);
-            vines.Add(Part("Frozen vine",box,wood,p,new Vector3(.15f,.7f,1.4f)));
-            crops.Add(Part("Restored seedling",VillageKit.Blob(120+i,.1f),green,p,Vector3.one*.08f).transform);
-        }
-        bucket=Part("Water pail",VillageKit.Ring(12,.8f),wood,spring+Vector3.up*.1f,new Vector3(.22f,.35f,.22f)).transform;
-        Part("Mountain spring",VillageKit.Disc(10,0),VillageKit.Mat(new Color(.25f,.6f,.75f)),spring+Vector3.up*.04f,new Vector3(1.2f,1,1.2f));
-        Part("Overlook bench",box,wood,summit+new Vector3(0,.55f,-2),new Vector3(2.5f,.15f,.6f),true);
-        for(int i=-1;i<=1;i+=2)Part("Bench leg",box,wood,summit+new Vector3(i,.25f,-2),new Vector3(.15f,.5f,.45f),true);
-        lastFragment=Part("Last fragment",VillageKit.Blob(80,0,4,8),glow,summit+Vector3.up*1.2f,Vector3.one*.3f).transform;
-        altar=Part("Observatory altar",box,stone,summit+Vector3.up*.4f,new Vector3(1.4f,.8f,1.4f),true).transform;
-        beam=Part("Wish beam",VillageKit.Ring(12,.95f),glow,summit+Vector3.up*.8f,new Vector3(.4f,8,.4f)).transform;
-        beam.gameObject.SetActive(!tether);
-        seal=Part("Canyon sealed floor",box,stone,canyon+Vector3.up*.1f,new Vector3(3,.2f,3),true).transform;
-        Part("Starfall mural",box,glow,canyon+new Vector3(0,1.2f,2),new Vector3(2.5f,2,.12f));
-        foreach(var p in new[]{ferry,farBank,garden,summit,canyon})GrassExclusions.Add(p,4f);
+        BuildSummitBench(box);
+        foreach (var p in new[] { canyon, observatory, benchPosition }) GrassExclusions.Add(p, 4f);
+        GrassExclusions.ClearExisting();
     }
-    bool ReachHeld => (Keyboard.current!=null&&Keyboard.current.eKey.isPressed)||(Gamepad.current!=null&&Gamepad.current.buttonWest.isPressed);
-    bool DimHeld => (Keyboard.current!=null&&Keyboard.current.cKey.isPressed)||(Gamepad.current!=null&&Gamepad.current.leftTrigger.ReadValue()>.5f);
-    bool Near(Vector3 p,float radius=3f) => Vector3.Distance(star.position,p)<radius;
+
+    Transform BuildSummitBench(Mesh box, bool withLamp = true)
+    {
+        benchPosition = summit;
+        var root = new GameObject("Summit bench").transform;
+        root.SetParent(transform);
+        root.SetPositionAndRotation(benchPosition, Quaternion.LookRotation(benchForward));
+        var cushion = VillageKit.Mat(new Color(.42f,.23f,.18f));
+        void Piece(string name, Vector3 offset, Vector3 size, Material material, bool solid = false)
+        {
+            var piece = Part(name, box, material, root.TransformPoint(offset), size, solid, root);
+            piece.transform.rotation = root.rotation;
+        }
+        Piece("Wide timber seat", new Vector3(0,.41f,0), new Vector3(2.45f,.15f,.75f), wood, true);
+        if (withLamp) Piece("Soft seat cushion", new Vector3(0,.5f,.03f), new Vector3(2.1f,.14f,.64f), cushion);
+        for (int i=0;i<3;i++)
+            Piece("Back slat", new Vector3(0,.62f+i*.14f,-.33f), new Vector3(2.35f,.11f,.11f),wood);
+        foreach(float side in new[]{-1f,1f})
+        {
+            for (int slat=0;slat<4;slat++)
+            {
+                float z = -.27f+slat*.18f;
+                if (side < 0) Piece("Seat plank",new Vector3(0,.499f,z),new Vector3(2.38f,.035f,.16f),wood);
+                Piece("Peg head",new Vector3(side*.92f,.52f,z),new Vector3(.045f,.013f,.045f),cushion);
+
+            }
+            Piece("Bench trestle",new Vector3(side*.93f,.2f,0),new Vector3(.2f,.42f,.7f),wood);
+            Piece("Bench armrest",new Vector3(side*1.05f,.72f,.02f),new Vector3(.14f,.12f,.66f),wood);
+            Piece("Bench back support",new Vector3(side*.99f,.63f,-.33f),new Vector3(.12f,.64f,.12f),wood);
+        }
+        if (!withLamp) return root;
+        var lampPosition = root.TransformPoint(new Vector3(1.25f,.58f,-.29f));
+        Part("Summit lamp", VillageKit.Blob(19,0,5,4), glow, lampPosition, new Vector3(.13f,.22f,.13f), parent:root);
+        var lamp = new GameObject("Summit lamp light").AddComponent<Light>();
+        lamp.transform.SetParent(root, false);
+        lamp.transform.position = lampPosition + Vector3.up * .16f;
+        lamp.color = new Color(1f,.7f,.42f);
+        lamp.range = 4f;
+        lamp.intensity = 1.6f;
+        return root;
+    }
+    Transform Authored(string name, Vector3 position)
+    {
+        var prefab = Resources.Load<GameObject>("VerticalSlice/" + name);
+        if (!prefab) throw new System.InvalidOperationException("Missing authored quest prefab: " + name);
+        return Instantiate(prefab, position, Quaternion.identity, transform).transform;
+    }
+    int lastReachFrame = -1;
+    internal bool ClaimsReach => lastReachFrame == Time.frameCount || ReachAvailable;
+    internal bool ReachAvailable => Ready && !InteractionBlocked && HasTargetInReach && CompanionReady;
+
+    bool InteractionBlocked => Busy || CutsceneDirector.Active || PauseMenu.IsOpen ||
+        Time.timeScale <= 0 || WishboundIntro.IsPlaying ||
+        (HouseEntrances.Instance && HouseEntrances.Instance.BlocksOutdoorInteraction);
+
+    bool CompanionReady => Current != Step.SummitBench ||
+        StarInput.InReach(child.position, benchPosition, 7f, 3f);
+
+    bool HasTargetInReach => Current switch
+    {
+        Step.Parcel when !dispatched => StarInput.InReach(star.position, packer ? packer.transform.position : Destination, 3.5f),
+        Step.Parcel when !parcelChosen => StarInput.InReach(star.position, parcel.position, 2.5f) ||
+            StarInput.InReach(star.position, spareParcel.position, 2.5f),
+        Step.Garden when !carryingWater => StarInput.InReach(star.position, Destination, 2.5f),
+        Step.Garden or Step.LastFragment or Step.SummitBench => StarInput.InReach(star.position, Destination, 4f),
+        Step.Complete => false,
+        _ => StarInput.InReach(star.position, Destination, 3.5f)
+    };
     void Update()
     {
         if(!star||!hint) return;
-        hintGroup.alpha=Busy||CutsceneDirector.Active||Current==Step.Complete?0:1;
-        if(Busy||CutsceneDirector.Active||Time.timeScale<=0) return;
-        cooldown-=Time.deltaTime;
-        SetDestination();
-        float distance=Vector3.Distance(star.position,Destination);
-        hint.text=Instruction()+"   ("+Mathf.RoundToInt(distance)+" m)";
-        if(Current==Step.Crossing)
+        bool blocked = InteractionBlocked;
+        hintGroup.alpha = blocked || Current == Step.Complete ? 0f : 1f;
+        bool canRide = !blocked && CanRide();
+        travelPrompt.alpha = Mathf.MoveTowards(travelPrompt.alpha, canRide ? 1f : 0f, Time.unscaledDeltaTime * 5f);
+        if (blocked) return;
+        if (canRide && WishboundInput.Pressed(Key.Tab, KeyCode.Tab))
         {
-            SetDim(DimHeld);
-            foreach(var b in bridges)b.SetActive(DimHeld);
-            if(DimHeld&&Near(farBank,2.5f)&&Vector3.Distance(child.position,farBank)<4)Advance(Step.Delivery);
-            return;
-        }
-        SetDim(false);
-        if(Current==Step.Prisms)
-        {
-            int aligned=0;
-            foreach(var p in prisms)
+
+            if (ride.TryBegin(Destination, null, () => { nextTrailGuide = 0f; }))
             {
-                Vector3 target=garden+Vector3.up*.3f;
-                Vector3 flat=Vector3.ProjectOnPlane(target-p.position,Vector3.up).normalized;
-                bool aimed=Vector3.Dot(p.forward,flat)>.96f;
-                var line=p.GetComponent<LineRenderer>();line.SetPosition(0,p.position);line.SetPosition(1,aimed?target:p.position+p.forward*3f);
-                if(aimed)aligned++;
-                if(Near(p.position,2)&&StarInput.ReachPressed)p.Rotate(0,30,0,Space.World);
+
+                hintGroup.alpha = travelPrompt.alpha = 0f;
+                return;
             }
-            if(aligned==prisms.Count)Advance(Step.Vines);
-            return;
         }
-        if(Current==Step.LeaveBeam) { if(Vector3.Distance(star.position,summit)>5f&&sawWish)Advance(Step.Altar);return; }
-        if(!Near(Destination,Current==Step.Home?5f:3f)){held=0;return;}
+        UpdateTrailGuide();
+        float distance=Vector3.Distance(star.position,Destination);
+        hint.text = Instruction() + (ReachAvailable ? "  ·  E" :
+            HasTargetInReach && !CompanionReady ? "  ·  Wait for the child" : $"  ·  {Mathf.Max(1, Mathf.CeilToInt(distance))} m away");
+        AdvanceQuest(StarInput.ReachPressed);
+    }
+
+    bool CanRide()
+    {
+        if (!ride || !ride.Ready) return false;
+        if (Current is not (Step.Parcel or Step.Garden or Step.LastFragment or Step.Hearth or Step.Murals or Step.Wish or Step.SummitBench))
+            return false;
+        Vector3 offset = Destination - star.position;
+        offset.y = 0f;
+        return offset.sqrMagnitude > 9f * 9f;
+    }
+
+    void AdvanceQuest(bool reachPressed)
+    {
+        if (!reachPressed || !ReachAvailable) return;
+        lastReachFrame = Time.frameCount;
         switch(Current)
         {
             case Step.Parcel:
-                if(StarInput.ReachPressed&&Vector3.Distance(child.position,ferry)<5){Carry(parcel);Advance(Step.Crossing);}break;
-            case Step.Delivery:
-                if(StarInput.ReachPressed){parcel.SetParent(transform,true);parcel.position=farBank+Vector3.up*.3f;StartCoroutine(Reward("DuskFerryComplete","You made a way without taking anybody's light.",Step.Prisms));}break;
-            case Step.Vines:
-                if(Hold(StarInput.PulseHeld,1.5f)){foreach(var v in vines)v.SetActive(false);Advance(Step.Water);}break;
-            case Step.Water:
-                if(StarInput.ReachPressed&&Vector3.Distance(child.position,spring)<5){Carry(bucket);Advance(Step.Garden);}break;
+                if (!dispatched)
+                {
+                    dispatched = true; StoryFlags.Set("SeedsRequested");
+                    Destination = Ground(parcel.position);
+                    WhisperLine.Show(packer ? packer.transform : child,"Take the seeds to " + address + ". Keep the starlight here.",5);
+                }
+                else if (!parcelChosen)
+                {
+                    StartCoroutine(InspectParcels());
+                }
+                else if (carryingParcel)
+                {
+                    carryingParcel = false; StoryFlags.Set("SeedsDelivered");
+                    spareParcel.position = doorstep;
+                    Destination = parcel.position;
+                    WhisperLine.Show(child,"The seeds are safe. Let's go back for the light.",4);
+                }
+                else StartCoroutine(RecoverAt(Current,parcelFragment,"ParcelFragmentRecovered",Step.Garden));
+                break;
             case Step.Garden:
-                if(StarInput.ReachPressed&&Vector3.Distance(child.position,garden)<5){bucket.SetParent(transform,true);bucket.position=garden+Vector3.right*3;StartCoroutine(RestoreGarden());}break;
+                if (gardenWatered) StartCoroutine(RecoverAt(Current,gardenFragment,"GardenFragmentRecovered",Step.LastFragment));
+                else if (carryingWater) StartCoroutine(TendGarden());
+                else { carryingWater = true; StoryFlags.Set("WaterCollected"); Destination = garden; }
+                break;
             case Step.LastFragment:
-                if(Hold(ReachHeld,2.5f))StartCoroutine(Ending(true));break;
+                if (!invited) StartCoroutine(InviteToBench());
+                else StartCoroutine(SummitFarewell());
+                break;
             case Step.Hearth:
-                if(Hold(StarInput.PulseHeld,2)){foreach(var p in FindObjectsByType<FarmPlotState>(FindObjectsSortMode.None))if(Vector3.Distance(p.transform.position,home)<60)p.CompleteBlessing();Advance(Step.Pebbles);}break;
-            case Step.Pebbles:
-                if(StarInput.ReachPressed){Part("Stacked pebble",VillageKit.Blob(count,0),stone,Destination+Vector3.up*(.1f+count*.17f),new Vector3(.22f,.09f,.18f));if(++count==3){count=0;Advance(Step.Stones);}}break;
-            case Step.Stones:
-                if(StarInput.ReachPressed&&cooldown<=0){StartCoroutine(SkipStone());cooldown=1.5f;if(++count==3){count=0;Advance(Step.Music);}}break;
-            case Step.Music:
-                if(StarInput.ReachPressed)StartCoroutine(Listen());break;
-            case Step.Seal:
-                if(DimHeld&&star.position.y>canyon.y+1f)StartCoroutine(Slam());break;
+                if (SeekEcho(0,"The bell is gone. Follow the rim toward the ridge and find its clapper.")) break;
+                StartCoroutine(Reward("VillageHearthResolved", "See the notch in the well rim? When the fog took the path, Gran rang her bucket against that stone. Someone on the ridge always answered.", Step.Murals));
+                break;
             case Step.Murals:
-                if(Hold(StarInput.PulseHeld,2))StartCoroutine(Reward("StarfallLore","I wished for someone who would stay. The sky answered with you.",Step.Wish));break;
+                if (SeekEcho(1,"One stone broke away. Look uphill for the missing piece.")) break;
+                StartCoroutine(Reward("StarfallLore", "Those scratches are names. Look where the smallest hand stopped carving. That's Gran. She was the child lost in the fog.", Step.Wish));
+                break;
             case Step.Wish:
-                if(StarInput.ReachPressed){sawWish=true;WhisperLine.Show(child,"That was my wish. But you don't owe the sky an answer.",6);Advance(Step.LeaveBeam);}break;
-            case Step.Altar:
-                if(Hold(ReachHeld,2)){altar.gameObject.SetActive(false);beam.gameObject.SetActive(false);ChildEncounter.Instance.TakeHand();Advance(Step.Home);}break;
-            case Step.Home:
-                if(Vector3.Distance(child.position,home)<7)StartCoroutine(Ending(false));break;
+                if (SeekEcho(2,"Someone carried the lantern outside. Find where its ember fell.")) break;
+                StartCoroutine(Reward("ObservatoryWishHeard", "The light that answered Gran came from here. I lit her lantern again the night you fell. I thought I had called you down. Did you come because you heard me?", Step.SummitBench));
+                break;
+            case Step.SummitBench:
+                StartCoroutine(RestAtSummit());
+                break;
         }
     }
-    bool Hold(bool input,float seconds){held=input?held+Time.deltaTime:0;return held>=seconds;}
-    void Carry(Transform item){item.SetParent(child,false);item.localPosition=new Vector3(0,.85f,.4f);}
-    void SetDim(bool value)
+    void LateUpdate()
     {
-        var r=StarRadiance.Instance;if(!r)return;
-        if(value&&!dimmed)baseRadiance=r.radiance;
-        if(value)r.radiance=.15f;else if(dimmed)r.radiance=baseRadiance;
-        dimmed=value;
+        if (carryingParcel) spareParcel.position = star.position + Vector3.up*.82f + star.right*.54f;
+        if (carryingWater) waterCan.position = star.position + Vector3.up*.58f + star.right*.56f;
     }
-    void Advance(Step step){Current=step;held=0;SetDestination();}
+
+    IEnumerator TendGarden()
+    {
+        Busy = true;
+        carryingWater = false;
+        director = CutsceneDirector.Begin();
+        CutsceneSkip.Begin(() => skipCut = true);
+        yield return WaterGarden();
+        gardenWatered = true; StoryFlags.Set("VinesWatered");
+        Destination = canHome;
+        CutsceneSkip.End();
+        skipCut = false;
+        director.End();
+        director = null;
+        Busy = false;
+    }
+
+    IEnumerator InviteToBench()
+    {
+        Busy = true;
+        director = CutsceneDirector.Begin();
+        var follow = child.GetComponent<ProceduralFollow>();
+        var collider = child.GetComponent<CharacterController>();
+        if (follow) follow.enabled = false;
+        if (collider) collider.enabled = false;
+        var actor = child.GetComponent<ChildPerformer>();
+        var side = Vector3.Cross(Vector3.up,benchForward);
+        var seat = summit + side*.42f + Vector3.up*.16f;
+        Vector3 approach = Ground(seat + benchForward*.8f);
+        var start = child.position;
+        director.Cut(seat + side*3.4f + benchForward*2.4f + Vector3.up*1.2f,seat + Vector3.up*.75f,43);
+        Speak("Child: Sit with you? I'd like that.");
+        yield return StoryShot(1.6f,t => child.position = Ground(Vector3.Lerp(start,approach,t)));
+        child.rotation = Quaternion.LookRotation(benchForward);
+        if (actor) { actor.Seated = true; actor.Act(ChildEmotion.Warm,star); }
+        yield return StoryShot(.85f,t => child.position = Vector3.Lerp(approach,seat,t));
+        ClearSpeech();
+        invited = true;
+        director.End();
+        director = null;
+        Busy = false;
+    }
+
+    void Advance(Step step)
+    {
+        Current = step;
+
+        SetDestination();
+        nextTrailGuide = 0;
+        UpdateTrailGuide();
+        ObjectiveChanged?.Invoke(step);
+    }
+
     void SetDestination()
     {
-        switch(Current)
+        Destination = Current switch
         {
-            case Step.Parcel:Destination=ferry;break;
-            case Step.Crossing:case Step.Delivery:Destination=farBank;break;
-            case Step.Prisms:case Step.Vines:case Step.Garden:Destination=garden;break;
-            case Step.Water:Destination=spring;break;
-            case Step.LastFragment:case Step.Wish:case Step.LeaveBeam:case Step.Altar:Destination=summit;break;
-            case Step.Seal:case Step.Murals:Destination=canyon;break;
-            case Step.Pebbles:Destination=Ground(home+Vector3.right*4);break;
-            case Step.Stones:Destination=VillageDressing.Instance.transform.Find("Fishpond")?VillageDressing.Instance.transform.Find("Fishpond").position:home;break;
-            default:Destination=home;break;
-        }
+            Step.Parcel => packer ? Ground(packer.transform.position) : packingStop,
+            Step.Garden => waterCan.position,
+            Step.LastFragment => summit,
+            Step.Murals => canyon,
+            Step.Wish => observatory,
+            Step.SummitBench => benchPosition,
+            _ => home
+        };
     }
-    string Instruction()
+
+    string Instruction() => Current switch
     {
-        switch(Current)
-        {
-            case Step.Parcel:return "Dusk-Ferry Parcel · Reach (E) with the Child to pick up the parcel";
-            case Step.Crossing:return "Hold C / left trigger to dim; guide the Child across the shadow stones";
-            case Step.Delivery:return "Reach (E) to deliver the parcel";
-            case Step.Prisms:return "Frost-Locked Seedbed · Reach (E) beside each prism to aim it at the soil";
-            case Step.Vines:return "Hold Pulse (F) to clear the thawed vines";
-            case Step.Water:return "Bring the Child to the spring; Reach (E) to fill the pail";
-            case Step.Garden:return "Bring the water to the seedbed; Reach (E) to pour";
-            case Step.LastFragment:return "Overlook Bench · Hold Reach (E) to take the last fragment";
-            case Step.Hearth:return "Hold Pulse (F) by the hearth to warm the village soil";
-            case Step.Pebbles:return "Reach (E) to stack three pebbles";
-            case Step.Stones:return "Reach (E) to skip three stones";
-            case Step.Music:return "Reach (E) to sit and listen with the Child";
-            case Step.Seal:return "Whisper Canyon · Jump, then hold C to ground-slam the sealed floor";
-            case Step.Murals:return "Hold Pulse (F) to light the starfall mural";
-            case Step.Wish:return "Observatory · Reach (E) to see the Child's wish";
-            case Step.LeaveBeam:return "Walk away from the beam";
-            case Step.Altar:return "Return to the altar; hold Reach (E) to break it";
-            case Step.Home:return "Walk home hand in hand";
-            default:return "";
-        }
-    }
+        Step.Parcel => !dispatched ? "Speak to the mailman" : carryingParcel ? "Deliver the sealed parcel to " + address + "" : parcelChosen ? "Return to the glowing parcel" : "Inspect the packages on the table",
+        Step.Garden => gardenWatered ? "Collect the light from the brass-rimmed can" : carryingWater ? "Water the squash bed" : "Pick up the blue water can beside the house",
+        Step.LastFragment => invited ? "Talk to the child on the bench" : "Invite the child to sit beside the summit pond",
+        Step.Hearth => "Hear how the village found water",
+        Step.Murals => "Learn about the old trail mark",
+        Step.Wish => "Hear the child’s wish at the observatory",
+        Step.SummitBench => "Rest beside the child on the summit",
+        _ => ""
+    };
     bool skipCut;
     IEnumerator Beat(float s){for(float t=0;t<s&&!skipCut;t+=Time.deltaTime)yield return null;}
     IEnumerator Reward(string flag,string line,Step next)
     {
         Busy=true;director=CutsceneDirector.Begin();
         Vector3 focus=(star.position+child.position)*.5f+Vector3.up;
+        if (Vector3.Distance(star.position, child.position) > 8f) focus = star.position + Vector3.up;
         director.Cut(focus+new Vector3(4,1,-4),focus,42);
-        skipCut=false;CutsceneSkip.Begin(()=>skipCut=true);WhisperLine.Show(child,line,4);yield return Beat(4);
-        if(!StoryFlags.Get(flag)){StoryFlags.Set(flag);if(tether)StoryFlags.Nudge(12,"Mountain fragment");}
+        var caption = WishboundUI.Label(null, "Journey dialogue", "Child: " + line, 34,
+            new Vector2(.5f,.16f), new Vector2(1400,115));
+        caption.horizontalOverflow = HorizontalWrapMode.Wrap;
+        caption.GetComponent<CanvasGroup>().alpha = 1;
+        skipCut = false;
+        CutsceneSkip.Begin(() => skipCut=true);
+        var speaker = child.GetComponent<ChildPerformer>();
+        if (speaker) speaker.Act(next == Step.SummitBench ? ChildEmotion.Shy : ChildEmotion.Warm,star);
+        Vector3 detail = Current == Step.Murals ? mural.position : Current == Step.Wish ? altar.position : home;
+        Vector3 axis = FlatDirection(detail,star.position);
+        Vector3 side = Vector3.Cross(Vector3.up,axis);
+        yield return StoryShot(Mathf.Clamp(line.Length / 16f + 1f,4f,9f),t =>
+        {
+            var subject = Vector3.Lerp(Vector3.Lerp(echoSites[foundEcho]+Vector3.up*.48f,detail+Vector3.up*.75f,Mathf.SmoothStep(0,1,t*2)),focus,Mathf.SmoothStep(0,1,t*2-1));
+            director.TrackFrame(subject + side*(3.2f-t*.55f) + axis*2.3f + Vector3.up*(1.1f-t*.4f),subject,Mathf.Lerp(46f,37f,t));
+        });
+        if (speaker) speaker.Act(ChildEmotion.None);
+        Destroy(caption.gameObject);
+        StoryFlags.Set(flag);
         if(StarRadiance.Instance)StarRadiance.Instance.UpdateDerivedBucket();
         CutsceneSkip.End();skipCut=false;director.End();director=null;Busy=false;Advance(next);
     }
-    IEnumerator RestoreGarden()
+    IEnumerator RestAtSummit()
     {
-        Busy=true;
-        for(float t=0;t<4;t+=Time.deltaTime){foreach(var c in crops)c.localScale=Vector3.one*Mathf.Lerp(.08f,.55f,t/4);yield return null;}
-        for(int i=0;i<5;i++)Part("Trellis step",VillageKit.ChamferBox(),wood,Ground(garden+new Vector3(0,0,3+i)) +Vector3.up*.15f,new Vector3(2,.2f,.8f),true);
-        Busy=false;yield return Reward("FrostSeedbedComplete","It was waiting for spring. We brought it together.",Step.LastFragment);
-    }
-    IEnumerator SkipStone()
-    {
-        var g=Part("Skipping stone",VillageKit.Blob(3,0),stone,star.position,Vector3.one*.12f);Vector3 from=star.position;
-        for(float t=0;t<1.2f;t+=Time.deltaTime){g.transform.position=Vector3.Lerp(from,Destination+Vector3.forward*4,t/1.2f)+Vector3.up*Mathf.Abs(Mathf.Sin(t*10))*.5f;yield return null;}Destroy(g);
-    }
-    IEnumerator Listen()
-    {
-        Busy=true;director=CutsceneDirector.Begin();Vector3 focus=(star.position+child.position)*.5f;
-        director.Cut(focus+new Vector3(4,2,-4),focus+Vector3.up*.6f,45);
-        if(MusicDirector.Instance)MusicDirector.Instance.Play("roots",2);
-        skipCut=false;CutsceneSkip.Begin(()=>skipCut=true);WhisperLine.Show(child,"We don't have to go anywhere yet.",5);yield return Beat(8);
-        CutsceneSkip.End();skipCut=false;director.End();director=null;Busy=false;Advance(Step.Seal);
-    }
-    IEnumerator Slam()
-    {
-        Busy=true;var pc=star.GetComponent<IslandThirdPersonController>();bool was=pc.enabled;pc.enabled=false;
-        var cc=star.GetComponent<CharacterController>();
-        float end=Time.time+1;
-        while(star.position.y>canyon.y+.25f&&Time.time<end){cc.Move(Vector3.down*18*Time.deltaTime);yield return null;}
-        seal.gameObject.SetActive(false);pc.enabled=was;Busy=false;Advance(Step.Murals);
-    }
-    IEnumerator Ending(bool ascend)
-    {
-        Busy=true;director=CutsceneDirector.Begin();hintGroup.alpha=0;
-        Vector3 focus=ascend?summit:(star.position+child.position)*.5f;
-        director.Cut(focus+new Vector3(5,1.3f,-1),focus+Vector3.up*.8f,45);
-        skipCut=false;CutsceneSkip.Begin(()=>skipCut=true);
-        WhisperLine.Show(child,ascend?"I'll look for you. Every night.":"Come on. Gran's keeping supper warm.",5);
-        if(ascend)
+        Busy = true;
+        hintGroup.alpha = 0;
+        director = CutsceneDirector.Begin();
+        var companion = child.GetComponent<ProceduralFollow>();
+        if (companion) companion.enabled = false;
+        var controller = child.GetComponent<CharacterController>();
+        if (controller) controller.enabled = false;
+        var performer = child.GetComponent<ChildPerformer>();
+        Vector3 right = Vector3.Cross(Vector3.up,benchForward);
+        Vector3 seat = benchPosition + right * .45f + Vector3.up*.16f;
+        Vector3 starSeat = benchPosition - right * .55f + Vector3.up*.53f;
+        Vector3 childStart = child.position;
+        Vector3 starStart = star.position;
+        Vector3 staging = Ground(benchPosition + benchForward * .9f + right * .45f);
+        Quaternion entryRotation = child.rotation;
+        Quaternion seatingRotation = Quaternion.LookRotation(benchForward);
+        Vector3 focus = benchPosition + Vector3.up*.8f;
+        var starVisual = WishboundIntro.Instance ? WishboundIntro.Instance.starVisual : null;
+        Vector3 visualScale = starVisual ? starVisual.localScale : Vector3.one;
+        var light = StarRadiance.Instance;
+        if (light) { light.flare = 0; light.radiance = .22f; }
+        director.Cut(benchPosition+benchForward*3.4f+right*3f+Vector3.up*1.5f,focus,42);
+        for (float t=0;t<1.3f;t+=Time.deltaTime)
         {
-            lastFragment.gameObject.SetActive(false);
-            Vector3 start=star.position;
-            for(float t=0;t<6&&!skipCut;t+=Time.deltaTime){star.position=start+Vector3.up*(t*t*.8f);yield return null;}if(skipCut)star.position=start+Vector3.up*28.8f;
-            StoryFlags.Set("TetherEnding");
+            float blend = Mathf.SmoothStep(0,1,t/1.3f);
+            child.position = Ground(Vector3.Lerp(childStart,staging,blend));
+            child.rotation = Quaternion.Slerp(entryRotation,seatingRotation,blend);
+            star.position = Vector3.Lerp(starStart,starSeat,blend);
+            if (starVisual) starVisual.localScale = visualScale * Mathf.Lerp(1f,.64f,blend);
+            yield return null;
         }
-        else {yield return Beat(6);StoryFlags.Set("RootsEnding");}
-        CutsceneSkip.End();skipCut=false;
-        Current=Step.Complete;Busy=false;
-        director.End();director=null;
-        // Preserve a playable post-ending state instead of leaving the controller locked in the sky.
-        if(ascend)star.GetComponent<IslandThirdPersonController>().Teleport(summit+Vector3.back*2,0);
+        if (performer)
+        {
+            performer.Seated = true;
+            performer.lookTarget = null;
+            performer.lookPoint = benchPosition + benchForward * 50 + Vector3.up*5;
+        }
+        for (float t=0;t<.85f;t+=Time.deltaTime)
+        {
+            child.position = Vector3.Lerp(staging,seat,Mathf.SmoothStep(0,1,t/.85f));
+            yield return null;
+        }
+        child.SetPositionAndRotation(seat,seatingRotation);
+        star.position = starSeat;
+        if (starVisual) starVisual.localScale = visualScale * .64f;
+        StoryFlags.Set("RestedAtSummit");
+        WhisperLine.Show(child,"We can come back tomorrow. There's no hurry now.",5);
+        yield return director.Glide(benchPosition + benchForward*1.8f + right*3.8f + Vector3.up*1.55f,
+            focus + benchForward*.7f, 55, 6);
+        yield return new WaitForSeconds(2f);
+        FinishEnding(StarAlignment.Roots);
     }
-    void OnDestroy(){CutsceneSkip.End();if(hint)Destroy(hint.gameObject);SetDim(false);if(director)director.End(0);if(Instance==this)Instance=null;}
+
+    void FinishEnding(StarAlignment ending)
+    {
+        StoryFlags.Set(ending == StarAlignment.Tether ? "TetherEnding" : "RootsEnding");
+        Advance(Step.Complete);
+        Busy = false;
+        // Keep the final camera in place behind the epilogue.
+        WishboundEpilogue.Show(ending);
+    }
+
+    void OnDisable()
+    {
+        if (ride) ride.Cancel();
+        if (travelPrompt) travelPrompt.alpha = 0f;
+    }
+
+    void OnDestroy()
+    {
+        if (squashMesh) Destroy(squashMesh);
+        CutsceneSkip.End();
+        ClearSpeech();
+        if (hint) Destroy(hint.gameObject);
+        if (travelPrompt) Destroy(travelPrompt.gameObject);
+        if (director) director.End(0f);
+        if (Instance == this) Instance = null;
+    }
 }

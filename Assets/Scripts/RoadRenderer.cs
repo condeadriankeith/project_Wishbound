@@ -121,7 +121,7 @@ public static class RoadRenderer
     static float Taper(RoadData rd, float sd)
     {
         float e = Mathf.Min(sd, rd.L - sd);
-        return Mathf.Lerp(0.62f, 1f, Mathf.SmoothStep(0f, 1f, e / 4.5f));
+        return Mathf.Lerp(.08f, 1f, Mathf.SmoothStep(0f, 1f, e / 8f));
     }
 
     // ---- mesh primitives (flat shaded, uv0 = metres along / across the longest edge) ----
@@ -698,143 +698,7 @@ static void SmartEnds(RoadData rd, int iA, int iB, out int jA, out int jB)
         var c = new Vector3[n]; var u = new Vector3[n];
         for (int k = 0; k < n; k++) { c[k] = new Vector3(cx[k], deckY[k], cz[k]); u[k] = Vector3.up; }
 
-        bool wide = (float)sp.cr.width > 6f;
-        var mDeck = new MB(); var mTrim = new MB();
-        Color gMoss = new Color(0.40f, 0.50f, 0.27f), gWet = new Color(0.30f, 0.36f, 0.23f), gRope = new Color(0.74f, 0.63f, 0.42f);
-        var gTan = new Vector3[n]; var gUp = new Vector3[n];
-        for (int k = 0; k < n; k++) { gTan[k] = (c[Mathf.Min(n - 1, k + 1)] - c[Mathf.Max(0, k - 1)]).normalized; gUp[k] = (Vector3.up - gTan[k] * Vector3.Dot(Vector3.up, gTan[k])).normalized; }
-        void Box(MB gm, Vector3 pa, Vector3 pb, float gw, float gh, Color gc, Vector3? gref = null)
-        {
-            var dir = (pb - pa).normalized; var rf = gref ?? Vector3.up; if (Mathf.Abs(Vector3.Dot(dir, rf)) > 0.9f) rf = Vector3.right;
-            var rr = Vector3.Cross(rf, dir).normalized; var uu = Vector3.Cross(dir, rr).normalized; gc.a = 1f;
-            Sweep(gm, new Vector3[2] { pa, pb }, new Vector3[2] { rr, rr }, new Vector3[2] { uu, uu }, new float[2] { gw, gw }, new float[2] { gh, gh }, gc, rng, true);
-        }
-        float GH(Vector3 gp) { return GroundAt(gp); }
-        Vector3 Pos(int gk, float gs, float gd) { return c[gk] + r[gk] * gs * (hw + gd); }
-
-        // ---- Chunky irregular planks: each its own slab, slightly yawed/tilted/uneven, some mossy ----
-        float gAcc = 0f, gNext = 0.40f; int gLk = 0;
-        for (int k = 1; k < n; k++)
-        {
-            gAcc += (c[k] - c[k - 1]).magnitude;
-            if (gAcc < gNext && k < n - 1) continue;
-            float gLen = gAcc; gAcc = 0f; gNext = 0.34f + 0.18f * (float)rng.NextDouble();
-            int gm = (gLk + k) / 2; Vector3 mid = (c[gLk] + c[k]) * 0.5f;
-            float ov = 0.02f + 0.05f * (float)rng.NextDouble();
-            Vector3 rrY = Quaternion.AngleAxis(((float)rng.NextDouble() - 0.5f) * 5f, gUp[gm]) * r[gm];
-            Vector3 pc = mid - gUp[gm] * 0.045f + gUp[gm] * (((float)rng.NextDouble() - 0.5f) * 0.02f);
-            Color gcol = WoodPlank * (0.88f + 0.2f * (float)rng.NextDouble());
-            if (rng.NextDouble() < 0.12) gcol = Color.Lerp(gcol, gMoss, 0.35f);
-            Box(mDeck, pc - rrY * (hw + ov), pc + rrY * (hw + ov), Mathf.Max(0.05f, gLen * 0.5f - 0.012f), 0.045f, gcol, gUp[gm]);
-            gLk = k;
-        }
-
-        // ---- Heavy side beams + inner beams under the deck ----
-        var gW = new float[n]; var gH = new float[n]; var gP = new Vector3[n];
-        for (int k = 0; k < n; k++) { gW[k] = 0.10f; gH[k] = 0.20f; }
-        foreach (float gs in new float[] { -1f, 1f, 0f })
-        {
-            if (gs == 0f && !wide) continue;
-            for (int k = 0; k < n; k++) gP[k] = c[k] + r[k] * gs * (gs == 0f ? 0f : (hw + 0.02f)) - gUp[k] * 0.29f;
-            Sweep(mTrim, (Vector3[])gP.Clone(), r, gUp, gW, gH, WoodPost, rng, true);
-        }
-
-        // ---- Posts, caps, rails, sagging ropes ----
-        var gPk = new List<int>(); gPk.Add(0); float gAp = 0f;
-        for (int k = 1; k < n; k++) { gAp += (c[k] - c[k - 1]).magnitude; if (gAp >= 1.5f) { gPk.Add(k); gAp = 0f; } }
-        if (gPk[gPk.Count - 1] != n - 1) { if (n - 1 - gPk[gPk.Count - 1] < 2 && gPk.Count > 1) gPk[gPk.Count - 1] = n - 1; else gPk.Add(n - 1); }
-        float railH = wide ? 1.0f : 0.85f;
-        foreach (float gs in new float[] { -1f, 1f })
-        {
-            for (int i = 0; i < gPk.Count; i++)
-            {
-                int k = gPk[i]; bool endP = (i == 0 || i == gPk.Count - 1);
-                Vector3 pb2 = Pos(k, gs, 0.17f); float ph = railH + (endP ? 0.25f : 0f);
-                Box(mTrim, pb2 - gUp[k] * 0.5f, pb2 + gUp[k] * ph, 0.08f, 0.08f, WoodPost);
-                Box(mTrim, pb2 + gUp[k] * ph, pb2 + gUp[k] * (ph + 0.07f), 0.115f, 0.115f, Color.Lerp(WoodRail, gMoss, 0.12f));
-                if (i + 1 < gPk.Count)
-                {
-                    int k2 = gPk[i + 1]; Vector3 q2 = Pos(k2, gs, 0.17f);
-                    foreach (float lv in new float[] { 0.55f, 0.25f })
-                    {
-                        var rp = new Vector3[6]; var rr2 = new Vector3[6]; var ru = new Vector3[6]; var rw = new float[6]; var rh = new float[6];
-                        for (int j = 0; j < 6; j++)
-                        {
-                            float tj = j / 5f;
-                            rp[j] = Vector3.Lerp(pb2, q2, tj) + gUp[k] * railH * lv - gUp[k] * (0.11f * Mathf.Sin(tj * Mathf.PI));
-                            rr2[j] = r[k]; ru[j] = gUp[k]; rw[j] = 0.022f; rh[j] = 0.022f;
-                        }
-                        Sweep(mTrim, rp, rr2, ru, rw, rh, gRope, rng, true);
-                    }
-                }
-            }
-            var tr = new Vector3[n]; var tw = new float[n]; var th = new float[n];
-            for (int k = 0; k < n; k++) { tr[k] = Pos(k, gs, 0.17f) + gUp[k] * (railH - 0.04f); tw[k] = 0.05f; th[k] = 0.045f; }
-            Sweep(mTrim, tr, r, gUp, tw, th, WoodRail, rng, true);
-        }
-
-        // ---- Splayed A-frame trestle bents with cap beam, cross + X bracing, mossy/wet lower legs ----
-        float gAs = 0f;
-        for (int k = 1; k < n - 1; k++)
-        {
-            gAs += (c[k] - c[k - 1]).magnitude; if (gAs < 3.0f) continue; gAs = 0f;
-            float gTopY = deckY[k] - 0.49f; Vector3[] gTop = new Vector3[2], gBot = new Vector3[2];
-            float gMinBed = 1e9f;
-            for (int si = 0; si < 2; si++)
-            {
-                float gs = si == 0 ? -1f : 1f;
-                Vector3 tp = c[k] + r[k] * gs * (hw * 0.85f); tp.y = gTopY;
-                Vector3 bp = c[k] + r[k] * gs * (hw * 0.85f + 0.28f); bp.y = GH(bp) - 0.45f;
-                gTop[si] = tp; gBot[si] = bp; gMinBed = Mathf.Min(gMinBed, bp.y);
-            }
-            if (gTopY - gMinBed < 0.6f) continue;
-            float gWl = hasWater[k] ? water[k] : gMinBed;
-            for (int si = 0; si < 2; si++)
-            {
-                float my = Mathf.Clamp(gWl + 0.35f, gBot[si].y + 0.1f, gTop[si].y - 0.1f); float tt2 = (my - gBot[si].y) / (gTop[si].y - gBot[si].y);
-                Vector3 mp = Vector3.Lerp(gBot[si], gTop[si], tt2);
-                Box(mTrim, gBot[si], mp, 0.105f, 0.105f, gWet);
-                Box(mTrim, mp, gTop[si], 0.10f, 0.10f, WoodPost);
-            }
-            Box(mTrim, gTop[0] - r[k] * 0.28f - Vector3.up * 0.07f, gTop[1] + r[k] * 0.28f - Vector3.up * 0.07f, 0.09f, 0.08f, WoodPost);
-            float gMy = Mathf.Lerp(gMinBed, gTopY, 0.55f);
-            Vector3 l1 = Vector3.Lerp(gBot[0], gTop[0], 0.3f), l2 = Vector3.Lerp(gBot[0], gTop[0], 0.75f), r1 = Vector3.Lerp(gBot[1], gTop[1], 0.3f), r2 = Vector3.Lerp(gBot[1], gTop[1], 0.75f);
-            Box(mTrim, l1, r2, 0.05f, 0.05f, WoodPost); Box(mTrim, r1, l2, 0.05f, 0.05f, WoodPost);
-            Box(mTrim, l2, r2, 0.06f, 0.06f, WoodPost);
-        }
-
-        // ---- Log-cabin crib abutments sunk into each bank ----
-        foreach (int gE in new int[] { 0, n - 1 })
-        {
-            Vector3 gOut = gE == 0 ? -gTan[0] : gTan[n - 1]; gOut.y = 0f; gOut.Normalize();
-            float gmin = 1e9f;
-            for (int li = -2; li <= 2; li++) for (int oi = 0; oi <= 3; oi++) { Vector3 q = new Vector3(cx[gE], 0f, cz[gE]) + r[gE] * (hw * 0.46f * li) + gOut * (oi * 0.5f); gmin = Mathf.Min(gmin, GH(q)); }
-            float gy = gmin - 0.5f, gtop = deckY[gE] - 0.3f;
-            int layers = Mathf.Clamp(Mathf.CeilToInt((gtop - gy) / 0.17f), 1, 16); float lstep = layers > 1 ? (gtop - gy - 0.1f) / (layers - 1) : 0.17f;
-            for (int L = 0; L < layers; L++)
-            {
-                float y = gy + 0.1f + L * lstep; Vector3 bc = new Vector3(cx[gE], y, cz[gE]);
-                Color lc = WoodPost * (0.88f + 0.2f * (float)rng.NextDouble()); if (L < 2) lc = Color.Lerp(lc, gMoss, 0.4f);
-                foreach (float gs in new float[] { -1f, 1f }) Box(mTrim, bc + r[gE] * gs * hw * 0.92f, bc + r[gE] * gs * hw * 0.92f + gOut * 1.0f, 0.08f, 0.08f, lc);
-                Box(mTrim, bc - r[gE] * (hw + 0.1f) + gOut * 0.05f, bc + r[gE] * (hw + 0.1f) + gOut * 0.05f, 0.08f, 0.08f, lc);
-            }
-        }
-        var goDeck = Emit(mDeck, "Bridge_Deck_" + idx, parent, matWood, true, false);
-        var goTrim = Emit(mTrim, "Bridge_Trim_" + idx, parent, matWood, true, false);
-        if (goDeck != null)
-        {
-            var mf = goDeck.GetComponent<MeshFilter>();
-            var mc = goDeck.AddComponent<MeshCollider>();
-            mc.sharedMesh = mf.sharedMesh;
-            mc.convex = false;
-        }
-        if (goTrim != null)
-        {
-            var mf2 = goTrim.GetComponent<MeshFilter>();
-            var mc2 = goTrim.AddComponent<MeshCollider>();
-            mc2.sharedMesh = mf2.sharedMesh;
-            mc2.convex = false;
-        }
+        IslandDeckBridge.Build("Island deck bridge " + idx, c, hw * 2f, parent);
         return 1;
     }
 

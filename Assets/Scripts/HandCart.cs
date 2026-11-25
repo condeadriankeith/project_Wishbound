@@ -18,6 +18,7 @@ public class HandCart : MonoBehaviour
     public bool Parked => puller == null;
     public bool HasCargo => cargoQty > 0;
 
+    float nextRoll;
     float wheelAngle, handleTilt = 16f, rock, lastGood; Vector3 lastPos; static readonly RaycastHit[] hits = new RaycastHit[10];
 
     void OnEnable() { if (VillageWorld.I && !VillageWorld.I.carts.Contains(this)) VillageWorld.I.carts.Add(this); lastPos = transform.position; parkedAt = Time.time; }
@@ -56,6 +57,7 @@ public class HandCart : MonoBehaviour
                 Vector3 newAxle = hip - dir * shaftLength;
                 // smooth the follow so the cart doesn't snap when the puller turns on the spot
                 newAxle = Vector3.Lerp(axle, newAxle, 1 - Mathf.Exp(-18 * dt));
+                newAxle.y = pt.position.y;
                 float gy = GroundY(newAxle, transform.position.y);
                 Vector3 p = new Vector3(newAxle.x, gy, newAxle.z);
                 Vector3 fwd = Flat(hip - newAxle).normalized; if (fwd.sqrMagnitude < .01f) fwd = transform.forward;
@@ -64,6 +66,11 @@ public class HandCart : MonoBehaviour
                 float travelled = Vector3.Dot(p - transform.position, fwd);
                 transform.position = p;
                 transform.rotation = Quaternion.LookRotation(slopeF.normalized, Vector3.up);
+                if (Mathf.Abs(travelled) > .15f * dt && Time.time >= nextRoll)
+                {
+                    WorldSound.Cue(transform, "Cart", 32f);
+                    nextRoll = Time.time + .52f;
+                }
                 wheelAngle += travelled / wheelRadius * Mathf.Rad2Deg;
                 rock = Mathf.Lerp(rock, Mathf.Clamp(Mathf.Abs(travelled) / Mathf.Max(dt, .001f), 0, 2.5f), 1 - Mathf.Exp(-4 * dt));
             }
@@ -77,8 +84,18 @@ public class HandCart : MonoBehaviour
             float gy = GroundY(transform.position, transform.position.y);
             if (Mathf.Abs(gy - transform.position.y) > .02f) transform.position = new Vector3(transform.position.x, Mathf.Lerp(transform.position.y, gy, .2f), transform.position.z);
         }
-        if (wheelL) wheelL.localRotation = Quaternion.Euler(wheelAngle, 0, 90);
-        if (wheelR) wheelR.localRotation = Quaternion.Euler(wheelAngle, 0, 90);
+        if (wheelL && wheelR)
+        {
+            var left = wheelL.position; var right = wheelR.position;
+            float rise = GroundY(right, right.y - wheelRadius) - GroundY(left, left.y - wheelRadius);
+            var across = new Vector3(right.x - left.x, rise, right.z - left.z);
+            transform.rotation = Quaternion.LookRotation(transform.forward, Vector3.Cross(transform.forward, across));
+            left = wheelL.position; right = wheelR.position;
+            float lift = Mathf.Max(GroundY(left, left.y-wheelRadius)-left.y, GroundY(right, right.y-wheelRadius)-right.y) + wheelRadius / Mathf.Max(.3f, transform.up.y);
+            transform.position += Vector3.up * lift;
+        }
+        if (wheelL) wheelL.localRotation = Quaternion.AngleAxis(wheelAngle, Vector3.right) * Quaternion.Euler(0, 0, 90);
+        if (wheelR) wheelR.localRotation = Quaternion.AngleAxis(wheelAngle, Vector3.right) * Quaternion.Euler(0, 0, 90);
         if (handles) handles.localRotation = Quaternion.Euler(handleTilt, 0, 0);
         if (body) body.localRotation = Quaternion.Euler(Mathf.Sin(Time.time * 9f) * rock * .5f, 0, Mathf.Sin(Time.time * 6.3f) * rock * .7f);
     }
@@ -87,6 +104,7 @@ public class HandCart : MonoBehaviour
 
     static float GroundY(Vector3 p, float fallback)
     {
+        if (BridgeWalkSurface.TrySupport(p, out _, out Vector3 deck)) return deck.y;
         int foliage = LayerMask.NameToLayer("TreeOcclusion"); int mask = ~0; if (foliage >= 0) mask &= ~(1 << foliage);
         int n = Physics.RaycastNonAlloc(new Vector3(p.x, p.y + 3f, p.z), Vector3.down, hits, 9f, mask, QueryTriggerInteraction.Ignore);
         float best = float.NegativeInfinity;

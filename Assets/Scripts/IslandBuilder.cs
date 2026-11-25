@@ -1,10 +1,12 @@
 using UnityEngine;
 using UnityEngine.Rendering;
+using System.Collections.Generic;
 using static TerrainMath;
 
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
 public class IslandBuilder : MonoBehaviour
 {
+    static readonly int ProceduralGround = Shader.PropertyToID("_ProceduralGround");
     public static IslandBuilder Instance;
     public Texture2D HeightTex { get; set; }
     public float[] PathMap { get; set; }
@@ -91,7 +93,11 @@ var idx = new int[N * N * 6];
         mesh.RecalculateNormals();
         var nrm = mesh.normals;
 
-        mesh.colors = BaseColors = PaintVertices(pos, h, nrm);
+        var ground = new List<Vector4>(pos.Length);
+        var field = new List<Vector4>(pos.Length);
+        mesh.colors = BaseColors = PaintVertices(pos, h, nrm, ground, field);
+        mesh.SetUVs(1, ground);
+        mesh.SetUVs(2, field);
         mesh.RecalculateBounds();
         // Sink the island under the comet crater's high-res sand patch (BeachCometCrater lays it on top).
         // Only the mesh moves: HGrid / Hm / BaseY keep the original ground, so props, grass and the patch itself are unaffected.
@@ -104,6 +110,7 @@ var idx = new int[N * N * 6];
         }
         var mf = GetComponent<MeshFilter>();
         if (mf) mf.sharedMesh = mesh;
+        SetProceduralGround(GetComponent<MeshRenderer>(), true);
         var mc = GetComponent<MeshCollider>();
         if (mc) mc.sharedMesh = mesh;
 
@@ -114,7 +121,15 @@ var idx = new int[N * N * 6];
         Shader.SetGlobalTexture("_GhibliHeightMap", HeightTex);
     }
 
-    Color[] PaintVertices(Vector3[] pos, float[] hArr, Vector3[] nrm)
+    internal static void SetProceduralGround(MeshRenderer renderer, bool enabled)
+    {
+        var properties = new MaterialPropertyBlock();
+        renderer.GetPropertyBlock(properties);
+        properties.SetFloat(ProceduralGround, enabled ? (MirrorZ ? -1f : 1f) : 0f);
+        renderer.SetPropertyBlock(properties);
+    }
+
+    Color[] PaintVertices(Vector3[] pos, float[] hArr, Vector3[] nrm, List<Vector4> ground, List<Vector4> field)
     {
         Color cG1 = C(0x489626), cG2 = C(0x2d6816), cW = C(0xfbfbf6), cSt = C(0xd9d3c5), cMo = C(0x719c40),
               cSa = C(0xf0e6cb), cSb = C(0x278d9d), cDi = C(0xba9b6d), cDi2 = C(0x8a724d);
@@ -132,7 +147,13 @@ var idx = new int[N * N * 6];
 
             double wet = RiverCarve.WetAt(x, z);   // 1 in the channel -> 0 a few metres past the banks
             int fi = Surface.FieldIndex(x, z, h, ny);
-            if (fi >= 0 && wet < 0.4) c = Color.Lerp(c, fields[fi], 0.78f);
+            float fieldWeight = fi >= 0 && wet < 0.4 ? .78f : 0f;
+            Color fieldColor = fi >= 0 ? fields[fi] : Color.black;
+            c = Color.Lerp(c, fieldColor, fieldWeight);
+            // Interpolate shape data, rather than pre-painted colors, for the terrain material.
+            // Premultiplication keeps field boundaries free of dark fringes.
+            ground.Add(new Vector4((float)h, (float)ny, PathMap != null ? PathMap[k] : 0f, (float)wet));
+            field.Add(new Vector4(fieldColor.r * fieldWeight, fieldColor.g * fieldWeight, fieldColor.b * fieldWeight, fieldWeight));
 
             double cliffW = Surface.CliffWeight(ny);
             if (cliffW > 0)

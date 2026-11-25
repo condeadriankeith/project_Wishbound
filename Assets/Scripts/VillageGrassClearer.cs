@@ -25,8 +25,13 @@ public class VillageGrassClearer : MonoBehaviour
     Dictionary<long, List<int>> pathGrid = new Dictionary<long, List<int>>();
     Dictionary<long, List<int>> circleGrid = new Dictionary<long, List<int>>();
 
+    public bool HouseFootprintsReady { get; private set; }
+
     IEnumerator Start()
     {
+        while (!VillageDressing.Instance || !VillageDressing.Instance.Built) yield return null;
+        GatherHouses();
+        HouseFootprintsReady = true;
         IslandStylizedGrass grass = null; IslandStylizedFlowers flowers = null;
         while (true)
         {
@@ -47,7 +52,7 @@ public class VillageGrassClearer : MonoBehaviour
         Debug.Log("[VillageGrassClearer] removed " + n + " grass/flower instances under " + boxes.Count + " footprints, " + circles.Count + " circles, " + pathPts.Count + " path points");
     }
 
-    void Gather(VillageDressing vd)
+    void GatherHouses()
     {
         // every house (and so its interior) lives inside its combined renderer bounds: no grass there
         foreach (var lg in FindObjectsByType<LODGroup>(FindObjectsSortMode.None))
@@ -55,15 +60,19 @@ public class VillageGrassClearer : MonoBehaviour
             if (!lg.name.Contains("House")) continue;
             var rs = lg.GetComponentsInChildren<Renderer>(true); if (rs.Length == 0) continue;
             var hb = rs[0].bounds; for (int i = 1; i < rs.Length; i++) hb.Encapsulate(rs[i].bounds);
-            AddBox(hb, houseMargin); GrassExclusions.AddInterior(hb);
+            AddBox(hb, houseMargin); GrassExclusions.AddInterior(hb, false);
         }
         foreach (var tr in FindObjectsByType<Transform>(FindObjectsSortMode.None))
         {
             if ((!tr.name.Contains("MedievalHouse") && tr.name != "WeatheredCottage") || (tr.parent && tr.parent.name.Contains("MedievalHouse"))) continue;
             var rs = tr.GetComponentsInChildren<MeshRenderer>(true); if (rs.Length == 0) continue;
             Bounds bounds = rs[0].bounds; foreach (var r in rs) bounds.Encapsulate(r.bounds);
-            AddBox(bounds, houseMargin); GrassExclusions.AddInterior(bounds);
+            AddBox(bounds, houseMargin); GrassExclusions.AddInterior(bounds, false);
         }
+    }
+
+    void Gather(VillageDressing vd)
+    {
         foreach (Transform child in vd.transform)
         {
             string n = child.name;

@@ -18,6 +18,7 @@ using UnityEngine.Rendering;
 public sealed class WishCometVisual : MonoBehaviour
 {
     public float Progress;
+    public float headScale = 1f;
     public float Atmosphere = 1;
     public float ionLength = 170f, dustLength = 135f;
     [Tooltip("Seconds the shockwave ring / starburst takes to expand and fade.")] public float burstDuration = 1.25f;
@@ -35,6 +36,7 @@ public sealed class WishCometVisual : MonoBehaviour
     readonly Vector3[] pts = new Vector3[Samples];
     readonly Vector3[] tmp = new Vector3[Samples];
 
+    readonly Dictionary<LineRenderer,float> trailWidths = new Dictionary<LineRenderer,float>();
     Transform sky, nucleus, halo, bloom, flare, burstQuad;
     Material skyMat, nucleusMat, haloMat, bloomMat, flareMat, burstMat, ionCoreMat, ionGlowMat, dustAMat, dustBMat;
     LineRenderer ionCore, ionGlow, dustA, dustB;
@@ -110,6 +112,7 @@ public sealed class WishCometVisual : MonoBehaviour
         var go = new GameObject(label); go.transform.SetParent(transform, false);
         var l = go.AddComponent<LineRenderer>();
         l.useWorldSpace = true; l.positionCount = 0; l.sharedMaterial = mat;
+        trailWidths[l] = width;
         l.widthMultiplier = width; l.widthCurve = curve;
         l.textureMode = LineTextureMode.Stretch; l.alignment = LineAlignment.View;
         l.numCornerVertices = 0; l.numCapVertices = 0;
@@ -286,12 +289,13 @@ public sealed class WishCometVisual : MonoBehaviour
 
     void Apply(LineRenderer l, float total, int kind, float amp, int idx)
     {
+        l.widthMultiplier = trailWidths[l] * headScale;
         if (total <= 0) { l.positionCount = 0; return; }
         for (int j = 0; j < Samples; j++)
         {
             int k = Samples - 1 - j;                    // line runs tail (0) -> head
             float s = k / (float)(Samples - 1);         // 0 at head, 1 at tail end
-            tmp[j] = pts[k] + Offset(kind, s, total, amp, idx);
+            tmp[j] = pts[k] + Offset(kind, s, total, kind == 1 ? amp : amp * headScale, idx);
         }
         if (l.positionCount != Samples) l.positionCount = Samples;
         l.SetPositions(tmp);
@@ -384,7 +388,7 @@ public sealed class WishCometVisual : MonoBehaviour
         Tint(flareMat, Mathf.Lerp(.65f, 1f, reveal), Mathf.Lerp(.9f, .78f, reveal), Mathf.Lerp(1f, .55f, reveal), (.38f * Mathf.Clamp01(grow * 1.4f) + flash * .5f));
 
         // head billboards (sizes are world units, independent of the parent's scale)
-        float inv = 1f / Mathf.Max(.01f, transform.lossyScale.x);
+        float inv = headScale / Mathf.Max(.01f, transform.lossyScale.x);
         float pulse = 1f + .035f * Mathf.Sin(Time.time * 5.2f) + .02f * Mathf.Sin(Time.time * 11.3f + 1f);
         nucleus.rotation = halo.rotation = bloom.rotation = flare.rotation = ct.rotation;
         nucleus.localScale = Vector3.one * (4.2f * pulse * (1f + flash * .6f) * inv);

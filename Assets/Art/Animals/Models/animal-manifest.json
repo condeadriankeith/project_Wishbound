@@ -1,0 +1,220 @@
+[
+  {
+    "asset": "Hen",
+    "source": "C:\\Users\\conde\\Downloads\\project_Wishbound\\Tools\\Animals\\build_animals.py",
+    "license": "Original procedural artwork for Wishbound",
+    "parts": [
+      {
+        "part": "BodyMesh",
+        "vertices": 1752,
+        "faces": 1920,
+        "degenerate": 0,
+        "boundary_edges": 0
+      },
+      {
+        "part": "HeadMesh",
+        "vertices": 1802,
+        "faces": 1966,
+        "degenerate": 0,
+        "boundary_edges": 0
+      },
+      {
+        "part": "Leg_LMesh",
+        "vertices": 288,
+        "faces": 290,
+        "degenerate": 0,
+        "boundary_edges": 0
+      },
+      {
+        "part": "Leg_RMesh",
+        "vertices": 288,
+        "faces": 290,
+        "degenerate": 0,
+        "boundary_edges": 0
+      },
+      {
+        "part": "TailMesh",
+        "vertices": 730,
+        "faces": 800,
+        "degenerate": 0,
+        "boundary_edges": 0
+      }
+    ],
+    "material": "Vertex colour / Ghibli ToonLit",
+    "visual_status": "pending review"
+  },
+  {
+    "asset": "Cat",
+    "source": "C:\\Users\\conde\\Downloads\\project_Wishbound\\Tools\\Animals\\build_animals.py",
+    "license": "Original procedural artwork for Wishbound",
+    "parts": [
+      {
+        "part": "BodyMesh.001",
+        "vertices": 1168,
+        "faces": 1280,
+        "degenerate": 0,
+        "boundary_edges": 0
+      },
+      {
+        "part": "HeadMesh.001",
+        "vertices": 2308,
+        "faces": 2464,
+        "degenerate": 0,
+        "boundary_edges": 0
+      },
+      {
+        "part": "Leg_BLMesh",
+        "vertices": 292,
+        "faces": 320,
+        "degenerate": 0,
+        "boundary_edges": 0
+      },
+      {
+        "part": "Leg_BRMesh",
+        "vertices": 292,
+        "faces": 320,
+        "degenerate": 0,
+        "boundary_edges": 0
+      },
+      {
+        "part": "Leg_FLMesh",
+        "vertices": 292,
+        "faces": 320,
+        "degenerate": 0,
+        "boundary_edges": 0
+      },
+      {
+        "part": "Leg_FRMesh",
+        "vertices": 292,
+        "faces": 320,
+        "degenerate": 0,
+        "boundary_edges": 0
+      },
+      {
+        "part": "TailMesh.001",
+        "vertices": 274,
+        "faces": 292,
+        "degenerate": 0,
+        "boundary_edges": 0
+      }
+    ],
+    "material": "Vertex colour / Ghibli ToonLit",
+    "visual_status": "pending review"
+  },
+  {
+    "asset": "Cow",
+    "source": "C:\\Users\\conde\\Downloads\\project_Wishbound\\Tools\\Animals\\build_animals.py",
+    "license": "Original procedural artwork for Wishbound",
+    "parts": [
+      {
+        "part": "BodyMesh.002",
+        "vertices": 1336,
+        "faces": 1456,
+        "degenerate": 0,
+        "boundary_edges": 0
+      },
+      {
+        "part": "HeadMesh.002",
+        "vertices": 3314,
+        "faces": 3602,
+        "degenerate": 0,
+        "boundary_edges": 0
+      },
+      {
+        "part": "Leg_BLMesh.001",
+        "vertices": 461,
+        "faces": 494,
+        "degenerate": 0,
+        "boundary_edges": 0
+      },
+      {
+        "part": "Leg_BRMesh.001",
+        "vertices": 461,
+        "faces": 494,
+        "degenerate": 0,
+        "boundary_edges": 0
+      },
+      {
+        "part": "Leg_FLMesh.001",
+        "vertices": 461,
+        "faces": 494,
+        "degenerate": 0,
+        "boundary_edges": 0
+      },
+      {
+        "part": "Leg_FRMesh.001",
+        "vertices": 461,
+        "faces": 494,
+        "degenerate": 0,
+        "boundary_edges": 0
+      },
+      {
+        "part": "TailMesh.002",
+        "vertices": 234,
+        "faces": 252,
+        "degenerate": 0,
+        "boundary_edges": 0
+      }
+    ],
+    "material": "Vertex colour / Ghibli ToonLit",
+    "visual_status": "pending review"
+  },
+  {
+    "asset": "Sheep",
+    "source": "C:\\Users\\conde\\Downloads\\project_Wishbound\\Tools\\Animals\\build_animals.py",
+    "license": "Original procedural artwork for Wishbound",
+    "parts": [
+      {
+        "part": "BodyMesh.003",
+        "vertices": 5640,
+        "faces": 6288,
+        "degenerate": 0,
+        "boundary_edges": 0
+      },
+      {
+        "part": "HeadMesh.003",
+        "vertices": 2062,
+        "faces": 2272,
+        "degenerate": 0,
+        "boundary_edges": 0
+      },
+      {
+        "part": "Leg_BLMesh.002",
+        "vertices": 316,
+        "faces": 334,
+        "degenerate": 0,
+        "boundary_edges": 0
+      },
+      {
+        "part": "Leg_BRMesh.002",
+        "vertices": 316,
+        "faces": 334,
+        "degenerate": 0,
+        "boundary_edges": 0
+      },
+      {
+        "part": "Leg_FLMesh.002",
+        "vertices": 316,
+        "faces": 334,
+        "degenerate": 0,
+        "boundary_edges": 0
+      },
+      {
+        "part": "Leg_FRMesh.002",
+        "vertices": 316,
+        "faces": 334,
+        "degenerate": 0,
+        "boundary_edges": 0
+      },
+      {
+        "part": "TailMesh.003",
+        "vertices": 146,
+        "faces": 160,
+        "degenerate": 0,
+        "boundary_edges": 0
+      }
+    ],
+    "material": "Vertex colour / Ghibli ToonLit",
+    "visual_status": "pending review"
+  }
+]

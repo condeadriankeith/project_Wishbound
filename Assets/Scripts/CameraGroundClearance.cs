@@ -37,19 +37,17 @@ public class CameraGroundClearance : CinemachineExtension
     readonly RaycastHit[] hits = new RaycastHit[128];
     readonly Dictionary<Renderer, bool> hidden = new Dictionary<Renderer, bool>();
 
-    bool IsSelf(Collider c) => (rig && rig.avatarRoot && c.transform.IsChildOf(rig.avatarRoot)) || c.GetComponentInParent<ProceduralFollow>() != null;   // the companion never pushes the camera
-    bool IsSmall(Collider c)
+    internal static bool BlocksCamera(Collider c)
     {
-        if (c is TerrainCollider) return false;
-        if (c is MeshCollider mc && !mc.convex) return false;   // terrain / building meshes
-        var s = c.bounds.size; return Mathf.Max(s.x, Mathf.Max(s.y, s.z)) < smallObstacleSize;
-    }
-
-    static int Mask()
-    {
-        int mask = ~0; int foliage = LayerMask.NameToLayer("TreeOcclusion");
-        if (foliage >= 0) mask &= ~(1 << foliage);   // foliage uses the dither fader, not collision
-        return mask;
+        if (!c || c.isTrigger) return false;
+        if (c is CharacterController || c.GetComponentInParent<SettlerRig>() || c.GetComponentInParent<ProceduralFollow>()) return false;
+        if (TerrainProbe.IsTerrain(c) || c is TerrainCollider) return true;
+        for (Transform t = c.transform; t; t = t.parent)
+        {
+            if (t.name == "TreeColliders" || t.name == "WeatheredCottage") return true;
+            if (t.parent && t.parent.TryGetComponent<VillageLot>(out var lot) && t.name == lot.house) return true;
+        }
+        return false;
     }
 
     protected override void PostPipelineStageCallback(CinemachineVirtualCameraBase vcam,
@@ -61,11 +59,15 @@ public class CameraGroundClearance : CinemachineExtension
         Vector3 anchor = rig.focus.position;
         bool reset = deltaTime < 0;
         float dt = Mathf.Max(0, deltaTime);
-        int mask = Mask();
+        int mask = Physics.AllLayers;
 
         if (stage == CinemachineCore.Stage.Body)
         {
             Vector3 desiredPosition = state.RawPosition;
+            float radius = Mathf.Max(collisionRadius, state.Lens.NearClipPlane *
+                Mathf.Sqrt(1f + Mathf.Pow(Mathf.Tan(state.Lens.FieldOfView * .5f * Mathf.Deg2Rad), 2) * (1f + state.Lens.Aspect * state.Lens.Aspect)));
+            if (TerrainProbe.TryGetGroundY(desiredPosition.x, desiredPosition.z, out float ground))
+                desiredPosition.y = Mathf.Max(desiredPosition.y, ground + radius);
 
             // ---- filtered floor
             float top = Mathf.Max(desiredPosition.y, anchor.y) + 3f;
@@ -74,7 +76,7 @@ public class CameraGroundClearance : CinemachineExtension
             for (int i = 0; i < groundCount; i++)
             {
                 var h = hits[i];
-                if (IsSelf(h.collider) || IsSmall(h.collider) || h.normal.y < .65f) continue;
+                if (!BlocksCamera(h.collider) || h.normal.y < .65f) continue;
                 if (h.point.y > desiredPosition.y + 2.5f) continue;   // a roof / canopy far above us is not a floor
                 floor = Mathf.Max(floor, h.point.y);
             }
@@ -82,7 +84,7 @@ public class CameraGroundClearance : CinemachineExtension
             {
                 if (reset || floorY == float.NegativeInfinity) { floorY = floor; floorVelocity = 0; }
                 else floorY = Mathf.SmoothDamp(floorY, floor, ref floorVelocity, floor > floorY ? floorRiseTime : floorFallTime, Mathf.Infinity, dt);
-                desiredPosition.y = Mathf.Max(desiredPosition.y, floorY + clearance * (1 - rig.FirstPersonBlend));
+                desiredPosition.y = Mathf.Max(desiredPosition.y, Mathf.Max(floor, floorY) + clearance * (1 - rig.FirstPersonBlend));
             }
 
             // ---- obstruction (damped, with hysteresis)
@@ -91,11 +93,11 @@ public class CameraGroundClearance : CinemachineExtension
             if (desired > .001f)
             {
                 float allowed = desired;
-                int count = Physics.SphereCastNonAlloc(anchor, collisionRadius, offset / desired, hits, desired, mask, QueryTriggerInteraction.Ignore);
+                int count = Physics.SphereCastNonAlloc(anchor, radius, offset / desired, hits, desired, mask, QueryTriggerInteraction.Ignore);
                 for (int i = 0; i < count; i++)
                 {
                     var c = hits[i].collider;
-                    if (IsSelf(c) || IsSmall(c)) continue;
+                    if (!BlocksCamera(c)) continue;
                     allowed = Mathf.Min(allowed, Mathf.Max(.02f, hits[i].distance - .08f));
                 }
                 if (reset || safeDistance <= 0) { safeDistance = allowed; distanceVelocity = 0; }
@@ -106,7 +108,7 @@ public class CameraGroundClearance : CinemachineExtension
                 }
                 else if (allowed > safeDistance + hysteresis || allowed >= desired - .001f)
                     safeDistance = Mathf.SmoothDamp(safeDistance, allowed, ref distanceVelocity, recoveryTime, Mathf.Infinity, dt);
-                safeDistance = Mathf.Min(safeDistance, desired);
+                safeDistance = Mathf.Min(safeDistance, allowed);
                 state.RawPosition = anchor + offset / desired * safeDistance;
             }
         }
@@ -115,6 +117,12 @@ public class CameraGroundClearance : CinemachineExtension
         // Stable eye: the follow target, not the bobbing / spring-lagged visual.
         Vector3 eye = anchor;
         state.RawPosition = Vector3.Lerp(state.RawPosition, eye, fp);
+        var finalPosition = state.RawPosition;
+        if (TerrainProbe.TryGetGroundY(finalPosition.x, finalPosition.z, out float groundFloor))
+        {
+            finalPosition.y = Mathf.Max(finalPosition.y, groundFloor + Mathf.Max(collisionRadius, state.Lens.NearClipPlane * 2f));
+            state.RawPosition = finalPosition;
+        }
         state.RawOrientation = Quaternion.Slerp(state.RawOrientation, Quaternion.Euler(rig.CameraPitch, rig.CameraYaw, 0), fp);
         bool hide = fp > .65f || (orb && Vector3.Distance(state.RawPosition, orb.transform.position) < .65f);
         if (hide && orb)

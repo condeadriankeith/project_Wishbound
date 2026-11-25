@@ -416,9 +416,10 @@ public class BeachCometCrater : MonoBehaviour
     System.Collections.IEnumerator Impact()
     {
         var c = Center;
+        CometBlast.Trigger(c);   // the wind blast runs out over the trees
         var lgo = new GameObject("Impact flash"); lgo.transform.SetParent(transform, false); lgo.transform.position = c + Vector3.up * 3;
         var flash = lgo.AddComponent<Light>(); flash.type = LightType.Point; flash.color = new Color(1f, .93f, .8f); flash.range = 140; flash.intensity = 80; flash.shadows = LightShadows.None;
-        var burst = MakeBurst(c); var debris = MakeDebris(c); var ring = MakeShockwave(c);
+        var burst = MakeBurst(c); var debris = MakeDebris(c); MakeShockwave(c);
         burst.Play(); debris.Play();
         if (smoke) smoke.Play(); if (embers) embers.Play();
         float t = 0;
@@ -435,7 +436,7 @@ public class BeachCometCrater : MonoBehaviour
         Amount = 1; ApplyAmount(1, 1, true); ColliderSettled = true; if (!propsShown) SetPropsVisible(true);
         for (float f = 0; f < 3.5f; f += Time.unscaledDeltaTime) { flash.intensity = Mathf.Lerp(14, 2.2f, f / 3.5f); flash.range = Mathf.Lerp(140, 14, f / 3.5f); yield return null; }
         flash.color = new Color(.5f, .85f, 1f); flash.range = 12; flash.intensity = 1.6f;   // the cooling glow that remains
-        Destroy(burst.gameObject, 8); Destroy(debris.gameObject, 8); if (ring) Destroy(ring, 3);
+        Destroy(burst.gameObject, 8); Destroy(debris.gameObject, 8);
     }
 
     ParticleSystem BaseBurst(string name, Vector3 at, Material mat)
@@ -479,11 +480,11 @@ public class BeachCometCrater : MonoBehaviour
 
     GameObject MakeShockwave(Vector3 c)
     {
-        if (!shockwaveMaterial) return null;
-        var go = GameObject.CreatePrimitive(PrimitiveType.Quad); go.name = "Impact shockwave"; Destroy(go.GetComponent<Collider>());
-        go.transform.SetParent(transform, false); go.transform.position = c + Vector3.up * .6f; go.transform.rotation = Quaternion.Euler(90, 0, 0);
-        var r = go.GetComponent<Renderer>(); r.sharedMaterial = shockwaveMaterial; r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        go.AddComponent<ShockwaveRing>();
+        var shader = Shader.Find("Wishbound/Atmosphere Additive");
+        if (!shader) return null;
+        var go = new GameObject("Impact pressure fronts");
+        go.transform.SetParent(transform, false);
+        go.AddComponent<ShockwaveRing>().Build(c, shader);
         return go;
     }
 
@@ -500,17 +501,79 @@ public class BeachCometCrater : MonoBehaviour
     void OnDestroy() { foreach (var item in owned) if (item) Destroy(item); if (Instance == this) Instance = null; }
 }
 
-/// <summary>Expanding, fading ground ring for the impact shockwave.</summary>
+/// <summary>Two additive pressure fronts conform to the terrain and use the same unscaled clock as the canopy gust.</summary>
 public class ShockwaveRing : MonoBehaviour
 {
-    public float duration = 1.6f, maxSize = 120f;
-    float t; Renderer r; MaterialPropertyBlock mpb;
-    void Awake() { r = GetComponent<Renderer>(); mpb = new MaterialPropertyBlock(); }
+    const int Segments = 96;
+    const int Ribbons = 2;
+    Mesh mesh;
+    Material material;
+    Vector3 center;
+    readonly Vector3[] vertices = new Vector3[Segments * 3 * Ribbons];
+    readonly Color[] tint = new Color[Segments * 3 * Ribbons];
+
+    public void Build(Vector3 origin, Shader shader)
+    {
+        center = origin;
+        mesh = new Mesh { name = "Terrain pressure fronts" };
+        mesh.MarkDynamic();
+        mesh.vertices = vertices;
+        var triangles = new System.Collections.Generic.List<int>();
+        for (int ring = 0; ring < Ribbons; ring++)
+            for (int i = 0; i < Segments; i++)
+                for (int row = 0; row < 2; row++)
+                {
+                    int a = (ring * Segments + i) * 3 + row;
+                    int b = (ring * Segments + (i + 1) % Segments) * 3 + row;
+                    triangles.AddRange(new[] { a, b, a+1, a+1, b, b+1 });
+                }
+        mesh.SetTriangles(triangles, 0);
+        CreateRenderer(shader);
+        Update();
+    }
+
+    void CreateRenderer(Shader shader)
+    {
+        gameObject.AddComponent<MeshFilter>().sharedMesh = mesh;
+        material = new Material(shader);
+        var renderer = gameObject.AddComponent<MeshRenderer>();
+        renderer.sharedMaterial = material;
+        renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+    }
+
     void Update()
     {
-        t += Time.deltaTime; float k = Mathf.Clamp01(t / duration);
-        float e = 1 - Mathf.Pow(1 - k, 2.4f);
-        transform.localScale = Vector3.one * Mathf.Lerp(2, maxSize, e);
-        r.GetPropertyBlock(mpb); mpb.SetColor("_BaseColor", new Color(1, 1, 1, (1 - k) * (1 - k))); r.SetPropertyBlock(mpb);
+        float age = CometBlast.Age;
+        if (age > CometBlast.Reach / CometBlast.Speed + .6f) { Destroy(gameObject); return; }
+        for (int ring = 0; ring < Ribbons; ring++)
+        {
+            float local = Mathf.Max(0, age - ring * .32f);
+            float radius = 1f + local * (CometBlast.Speed - ring * 3f);
+            float strength = Mathf.Clamp01(local * 16f) * Mathf.Pow(Mathf.Clamp01(1f - radius / CometBlast.Reach), 1.4f);
+            float halfWidth = Mathf.Lerp(1.2f, 4.5f, local / 4f) * (ring == 0 ? 1f : 1.6f);
+            for (int i = 0; i < Segments; i++)
+            {
+                float angle = i * (2f * Mathf.PI / Segments);
+                Vector3 direction = new Vector3(Mathf.Cos(angle), 0, Mathf.Sin(angle));
+                for (int row = 0; row < 3; row++)
+                {
+                    int at = (ring * Segments + i) * 3 + row;
+                    Vector3 point = center + direction * Mathf.Max(.2f, radius + (row - 1) * halfWidth);
+                    point.y = Mathf.Max(TerrainProbe.SeaLevel - .3f,
+                        TerrainProbe.GroundY(point, center.y)) + .20f + ring * .13f;
+                    vertices[at] = transform.InverseTransformPoint(point);
+                    tint[at] = new Color(1.1f, 1.42f, 1.65f, row == 1 ? strength * (ring == 0 ? 1f : .38f) : 0f);
+                }
+            }
+        }
+        mesh.vertices = vertices;
+        mesh.colors = tint;
+        mesh.RecalculateBounds();
+    }
+
+    void OnDestroy()
+    {
+        if (mesh) Destroy(mesh);
+        if (material) Destroy(material);
     }
 }

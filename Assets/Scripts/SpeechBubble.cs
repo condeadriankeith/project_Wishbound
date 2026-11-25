@@ -9,7 +9,7 @@ public class SpeechBubble : MonoBehaviour
 
     public static SpeechBubble Say(Transform speaker, string line, float seconds, float height)
     {
-        var t = WishboundUI.Label(null, "Speech", line, 30, new Vector2(.5f, .5f), new Vector2(500, 80));
+        var t = WishboundUI.Label(null, "Speech", line, 30, new Vector2(.5f, .5f), new Vector2(500, 80), false);
         var b = t.gameObject.AddComponent<SpeechBubble>();
         b.speaker = speaker; b.text = t; b.group = t.GetComponent<CanvasGroup>(); b.born = Time.time; b.until = Time.time + seconds; b.height = height;
         var s = t.GetComponent<ScribbleText>(); s.amount = .04f; s.boilsPerSecond = 6;

@@ -30,6 +30,31 @@ public class CottageChoiceScene : MonoBehaviour
 
     enum Phase { Waiting, Approach, Discovery, Interaction, Choice, Tether, Roots, Done }
     Phase phase = Phase.Waiting;
+    public StarAlignment CommittedRoute { get; private set; }
+    public event System.Action<StarAlignment> RouteCommitted;
+
+    // The memory film presents input; this component alone commits its consequences.
+    public bool TryCommitChoice(StarAlignment route)
+    {
+        if (phase != Phase.Choice || CommittedRoute != StarAlignment.None ||
+            (route != StarAlignment.Tether && route != StarAlignment.Roots)) return false;
+        CommittedRoute = route;
+        phase = route == StarAlignment.Tether ? Phase.Tether : Phase.Roots;
+        StoryFlags.Set("WarmthSeen");
+        StoryFlags.Set("CottageChoiceMade");
+        StoryFlags.Set("ChoseGatherFragments", route == StarAlignment.Tether);
+        StoryFlags.Set("ChoseLiveAmongHumans", route == StarAlignment.Roots);
+        StoryFlags.Nudge(route == StarAlignment.Tether ? 60f : -60f, "Cottage choice");
+        StoryFlags.Alignment = route;
+        if (StarRadiance.Instance) StarRadiance.Instance.UpdateDerivedBucket();
+        RouteCommitted?.Invoke(route);
+        return true;
+    }
+
+    public void OpenMemoryChoice()
+    {
+        if (phase == Phase.Interaction && CommittedRoute == StarAlignment.None) phase = Phase.Choice;
+    }
 
     Transform star, cottage, sill, lanternT, windowPane, childStand;
     Light heartbeat, roomFill; Renderer fragmentR, paneR, handprintR; Transform fragment;
@@ -58,7 +83,13 @@ public class CottageChoiceScene : MonoBehaviour
     {
         var vd = VillageDressing.Instance;
         Vector3 hamlet = vd.Well ? vd.Well.position : vd.transform.position;
-        Vector3 at = cottageOverride != Vector3.zero ? cottageOverride : vd.FindOpen(hamlet + new Vector3(-26, 0, 22), 9f, 0, 30);
+        Vector3 at = cottageOverride;
+        if (at == Vector3.zero && !vd.TryFindOpen(hamlet + new Vector3(-26, 0, 22), 10f, 0, 65, out at))
+        {
+            Debug.LogWarning("[CottageChoiceScene] No clear site for the cottage.");
+            enabled = false;
+            return;
+        }
         vd.Claim(at, 10f);
         at = VillageKit.Ground(at);
         var root = new GameObject("WeatheredCottage"); root.AddComponent<VillageKitPiece>();
@@ -66,6 +97,7 @@ public class CottageChoiceScene : MonoBehaviour
         Vector3 toHamlet = hamlet - at; toHamlet.y = 0; toHamlet.Normalize();
         root.transform.rotation = Quaternion.LookRotation(toHamlet);   // +Z (front, window wall) faces the hamlet
         cottage = root.transform;
+        GrassExclusions.AddInterior(RoomBounds);   // trees, bushes and grass keep out of the cottage (not just its courtyard)
         var tr = root.transform; var box = VillageKit.ChamferBox(.12f);
 
         GameObject Part(string n, Mesh m, Material mat, Vector3 lp, Vector3 sc, Quaternion? r = null, bool col = true)
@@ -138,11 +170,10 @@ public class CottageChoiceScene : MonoBehaviour
         var lan = Part("ClayLantern", VillageKit.Ring(9, .82f), clay, lanternAt, new Vector3(.17f, .32f, .17f), null, false); lanternT = lan.transform;
         Part("LanternCrack", box, VillageKit.Mat(new Color(.1f, .06f, .05f), new Color(.5f, .3f, .1f)), lanternAt + new Vector3(.17f, .17f, 0), new Vector3(.02f, .18f, .03f), Quaternion.Euler(0, 0, 18), false);
         // the fragment
-        var frag = GameObject.CreatePrimitive(PrimitiveType.Sphere); frag.name = "StarFragment"; Destroy(frag.GetComponent<Collider>());
-        frag.transform.SetParent(tr, false); frag.transform.localPosition = lanternAt + Vector3.up * .26f; frag.transform.localScale = Vector3.one * .16f;
-        var intro = FindFirstObjectByType<WishboundIntro>();
-        fragmentR = frag.GetComponent<Renderer>(); if (intro && intro.starBodyMaterial) fragmentR.sharedMaterial = intro.starBodyMaterial;
-        fragment = frag.transform;
+        var fragmentVisual = StarFragment.Create(tr, tr.TransformPoint(lanternAt + Vector3.up * .26f), .19f);
+        fragmentR = fragmentVisual.BodyRenderer;
+        fragment = fragmentVisual.transform;
+        fragment.name = "StarFragment";
         heartbeat = NewLight("Heartbeat", lanternAt + Vector3.up * .45f, new Color(1f, .62f, .3f), 4.5f, 1.8f, true);
         roomFill = NewLight("RoomFill", new Vector3(0, 2.0f, 0), new Color(.25f, .3f, .55f), 6f, .25f, false);
 
@@ -249,7 +280,7 @@ public class CottageChoiceScene : MonoBehaviour
         float t = Time.time;
         Vector3 sillP = sill.position + windowNormal * .55f;
         float dSill = Flat(star.position - sillP).magnitude;
-        float dCottage = Flat(star.position - cottage.position).magnitude;
+        bool nearSill = StarInput.InReach(star.position, sillP, sillRadius, 2.5f);
 
         // the heartbeat: ~70 bpm pulse, faster once the fragment senses its source
         float bpm = phase == Phase.Interaction || phase == Phase.Choice ? 110 : 70;
@@ -263,7 +294,13 @@ public class CottageChoiceScene : MonoBehaviour
         switch (phase)
         {
             case Phase.Approach:
-                if (dCottage < approachRadius && child && child.HasMet)
+                if (child && child.HasMet && StoryFlags.Get("CottageChoiceMade"))
+                {
+                    CommittedRoute = StoryFlags.Get("ChoseGatherFragments") ? StarAlignment.Tether : StarAlignment.Roots;
+                    Finish(CommittedRoute);
+                    break;
+                }
+                if (child && child.HasMet && StarInput.InReach(star.position, cottage.position, approachRadius, 4f))
                 {
                     phase = Phase.Discovery;
                     StartCoroutine(ChildLeads(child));
@@ -271,7 +308,7 @@ public class CottageChoiceScene : MonoBehaviour
                 break;
             case Phase.Discovery:
                 if (StarRadiance.Instance) StarRadiance.Instance.missingPiece = Mathf.InverseLerp(approachRadius, sillRadius, dSill);
-                if (dSill < sillRadius)
+                if (nearSill && !CutsceneDirector.Active && !PauseMenu.IsOpen)
                 {
                     phase = Phase.Interaction;
                     
@@ -279,7 +316,7 @@ public class CottageChoiceScene : MonoBehaviour
                 }
                 break;
             case Phase.Choice:
-                UpdateChoice(child, dSill);
+                if (!FragmentBlessing.Instance) UpdateChoice(nearSill);
                 break;
         }
     }
@@ -314,44 +351,60 @@ public class CottageChoiceScene : MonoBehaviour
         phase = Phase.Choice;
     }
 
-    void UpdateChoice(ChildEncounter child, float dSill)
+    void UpdateChoice(bool nearSill)
     {
         Flow(motes, fragment.position, star.position + Vector3.up * .2f, 6);
         var rad = StarRadiance.Instance;
         // Tether: hold the Starlight Pulse until the star flares through the glass
-        if (StarInput.PulseHeld) hold += Time.deltaTime; else hold = Mathf.MoveTowards(hold, 0, Time.deltaTime * 2);
+        if (nearSill && !PauseMenu.IsOpen && StarInput.PulseHeld) hold += Time.deltaTime; else hold = Mathf.MoveTowards(hold, 0, Time.deltaTime * 2);
         if (rad) { rad.flare = Mathf.Clamp01(hold / pulseHoldSeconds); rad.radiance = Mathf.Lerp(1, 1.3f, rad.flare); }
-        if (hold >= pulseHoldSeconds) { phase = Phase.Tether; StartCoroutine(Tether(child)); return; }
+        if (hold >= pulseHoldSeconds) { CompleteChoice(StarAlignment.Tether); return; }
         // Roots: with the light dimmed (not pulsing), reach out and press a hand to the glass
-        if (hold < .05f && dSill < sillRadius + .6f && StarInput.ReachPressed) { phase = Phase.Roots; StartCoroutine(Roots(child)); }
+        if (hold < .05f && nearSill && !PauseMenu.IsOpen && StarInput.ReachPressed) CompleteChoice(StarAlignment.Roots);
     }
 
     IEnumerator Tether(ChildEncounter child)
     {
-        var rad = StarRadiance.Instance;
         motes.Stop();
-        if (MusicDirector.Instance) MusicDirector.Instance.OneShot(glassShatter, 1f);
+        var scene = CutsceneDirector.Begin();
+        Vector3 focus = (fragment.position + star.position + Vector3.up * .7f) * .5f;
+        Vector3 side = Vector3.Cross(Vector3.up, windowNormal);
+        scene.Cut(focus + windowNormal * 2.8f + side * 1.35f + Vector3.up * .85f, focus, 42f);
+        if (MusicDirector.Instance) MusicDirector.Instance.OneShot(glassShatter, .72f);
         Shatter();
-        // the fragment zips back into the star's core
-        Vector3 from = fragment.position;
-        for (float t = 0; t < .7f; t += Time.deltaTime)
+        Color warmFill = roomFill.color;
+        float warmIntensity = heartbeat.intensity;
+        yield return StarFragment.Merge(fragment, star, k =>
         {
-            float k = t / .7f; fragment.position = Vector3.Lerp(from, star.position + Vector3.up * .3f, k * k);
-            yield return null;
-        }
-        fragment.gameObject.SetActive(false);
-        if (rad) { rad.missingPiece = 0; StoryFlags.Nudge(+60f, "Cottage: reclaimed the light"); rad.UpdateDerivedBucket(); rad.radiance = 1.25f; }
-        // inside: the room plunges into cold indigo and the baby begins to cry
-        for (float t = 0; t < 1.5f; t += Time.deltaTime)
+            float warmthLost = Mathf.SmoothStep(0f, 1f, k);
+            heartbeat.intensity = Mathf.Lerp(warmIntensity, 0f, warmthLost);
+            roomFill.color = Color.Lerp(warmFill, new Color(.20f, .25f, .52f), warmthLost);
+            roomFill.intensity = Mathf.Lerp(.8f, .25f, warmthLost);
+        });
+        // The other two lights are the actual objects from the well and crop vignettes.
+        foreach (var memory in FragmentGlow.All.ToArray())
         {
-            float k = t / 1.5f;
-            heartbeat.intensity = Mathf.Lerp(3, 0, k); roomFill.intensity = Mathf.Lerp(.25f, .7f, k); roomFill.color = new Color(.15f, .18f, .5f);
-            if (rad) rad.flare = Mathf.Lerp(1, 0, k);
-            yield return null;
+            if (!memory || (memory.name != "Fragment B" && memory.name != "Fragment D")) continue;
+            memory.enabled = false;
+            var shard = memory.transform;
+            Vector3 source = shard.position;
+            Vector3 toward = Vector3.ProjectOnPlane(star.position - source, Vector3.up).normalized;
+            Vector3 flank = Vector3.Cross(Vector3.up,toward);
+            var departing = source - toward * 2.3f + flank * 2.1f + Vector3.up * 1.3f;
+            scene.Cut(departing, source, 39f);
+            if (MusicDirector.Instance && WishboundIntro.Instance)
+                MusicDirector.Instance.OneShot(WishboundIntro.Instance.awakenTone,.38f);
+            yield return StarFragment.Merge(shard, star, k =>
+            {
+                if (k < .46f) scene.TrackFrame(departing + flank * k, source + Vector3.ClampMagnitude(shard.position-source,2f)*.65f,39f);
+                else scene.TrackFrame(focus + windowNormal * 3.3f - side * 1.8f, star.position + Vector3.up * .8f,40f);
+            });
+            Destroy(memory.gameObject);
         }
-        if (MusicDirector.Instance) MusicDirector.Instance.OneShot(babyCry, .7f);
-        // the child shields their eyes and steps back; they will not hold the star's hand
-        if (child) { child.Refuse(); WhisperLine.Show(child.Child.transform, "...", 2.5f, 1.6f, 34); }
+        if (MusicDirector.Instance) MusicDirector.Instance.OneShot(babyCry, .6f);
+        if (child) child.TakeHand();
+        yield return new WaitForSeconds(.65f);
+        scene.End();
         Finish(StarAlignment.Tether);
     }
 
@@ -373,7 +426,7 @@ public class CottageChoiceScene : MonoBehaviour
             yield return null;
         }
         warmth.Stop(); handprintR.enabled = false;
-        if (rad) StoryFlags.Nudge(-60f, "Cottage: gave the light"); rad.UpdateDerivedBucket();
+        if (rad) rad.UpdateDerivedBucket();
         fragmentR.GetPropertyBlock(mpb); mpb.SetFloat("_Intensity", 1.6f); fragmentR.SetPropertyBlock(mpb);
         // the child exhales a visible breath, steps forward and slips their hand into the star's
         if (child) { Breath(child.Child.transform.position + Vector3.up * 1.2f + child.Child.transform.forward * .2f); yield return new WaitForSeconds(.8f); child.TakeHand(); }
@@ -383,7 +436,6 @@ public class CottageChoiceScene : MonoBehaviour
     void Finish(StarAlignment a)
     {
         phase = Phase.Done;
-        StoryFlags.Set("CottageChoiceMade");
         MountainJourney.Begin(a);
         if (IsoCameraRig.Active) IsoCameraRig.Active.SetProfile(null);
         if (MusicDirector.Instance) MusicDirector.Instance.Play(a == StarAlignment.Tether ? "tether" : "roots", 5f);
@@ -422,12 +474,16 @@ public class CottageChoiceScene : MonoBehaviour
     public void ForceChoice(bool tether)
     {
         if (phase != Phase.Choice) return;
-        var child = ChildEncounter.Instance;
-        if (tether) { phase = Phase.Tether; StartCoroutine(Tether(child)); } else { phase = Phase.Roots; StartCoroutine(Roots(child)); }
+        CompleteChoice(tether ? StarAlignment.Tether : StarAlignment.Roots);
     }
     public Transform Cottage => cottage; public Light Heartbeat => heartbeat; public Light RoomFillLight => roomFill;
     public Vector3 LanternPoint => fragment ? fragment.position : (cottage ? cottage.position : Vector3.zero);
-    public void CompleteChoice(StarAlignment a) { Finish(a); }
+    public void CompleteChoice(StarAlignment a)
+    {
+        if (!TryCommitChoice(a)) return;
+        var child = ChildEncounter.Instance;
+        StartCoroutine(a == StarAlignment.Tether ? Tether(child) : Roots(child));
+    }
     public string PhaseName => phase.ToString();
     public Transform Sill => sill;
     /// <summary>World AABB of the cottage's interior (matches W 5.2 x D 4.4 x H 2.6 in Build).</summary>

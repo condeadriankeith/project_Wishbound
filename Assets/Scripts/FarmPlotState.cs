@@ -115,6 +115,28 @@ public class FarmPlotState : MonoBehaviour
         return VillageKit.Ground(transform.TransformPoint(spot));
     }
 
+    public bool TryWorkAccess(VillageWorld world, Vector3 from, out Vector3 access)
+    {
+        access = default;
+        float best = float.PositiveInfinity;
+        for (int i = 0; i < 4; i++)
+        {
+            var offset = i < 2
+                ? Vector3.right * (size.x * .5f + 1.75f) * (i == 0 ? 1f : -1f)
+                : Vector3.forward * (size.y * .5f + 1.75f) * (i == 2 ? 1f : -1f);
+            Vector3 candidate = VillageKit.Ground(transform.TransformPoint(offset));
+            var path = world.FindPath(from, candidate);
+            if (path.Count == 0 || (path[path.Count - 1] - candidate).sqrMagnitude > .8f * .8f) continue;
+            float length = 0f;
+            Vector3 previous = from;
+            foreach (var point in path) { length += Vector3.Distance(previous, point); previous = point; }
+            if (length >= best) continue;
+            access = candidate;
+            best = length;
+        }
+        return best < float.PositiveInfinity;
+    }
+
     // ---------------------------------------------------------------- visuals
     void Refresh(bool force)
     {

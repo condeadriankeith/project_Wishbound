@@ -69,8 +69,8 @@ public static partial class VillageKit
             {
                 float a = (i + course * .5f) * Mathf.PI * 2 / n;
                 var m = (i + course) % 5 == 0 ? moss : (i + course) % 2 == 0 ? stone : stoneL;
-                Part("Cobble", Blob(seed * 7 + i + course * 20, .18f), m, tr, new Vector3(Mathf.Cos(a) * 1.04f, .2f + course * .25f, Mathf.Sin(a) * 1.04f),
-                    Quaternion.Euler(R(rng, -6, 6), -a * Mathf.Rad2Deg, R(rng, -6, 6)), new Vector3(.2f, .17f, .34f));
+                Part("Dressed voussoir", box, m, tr, new Vector3(Mathf.Cos(a) * 1.04f, .2f + course * .25f, Mathf.Sin(a) * 1.04f),
+                    Quaternion.Euler(R(rng, -6, 6), -a * Mathf.Rad2Deg, R(rng, -6, 6)), new Vector3(.26f, .245f, .49f));
             }
         }
         for (int i = 0; i < 14; i++)
@@ -105,7 +105,7 @@ public static partial class VillageKit
             const float theta = 38f * Mathf.Deg2Rad; const float slopeLen = 1.6f; const float Hr = 3.02f; int rows = 5, cols = 8;
             float rowStep = slopeLen / rows, w = 3.2f / cols;
             var variants = new Material[4];
-            for (int k = 0; k < 4; k++) variants[k] = Mat(Color.Lerp(Slate, SlateLight, k / 3f), default, .25f, .1f);
+            for (int k = 0; k < 4; k++) variants[k] = Mat(Color.Lerp(new Color(.44f,.12f,.15f), new Color(.70f,.27f,.20f), k / 3f), default, .25f, .1f);
             foreach (float s in new[] { 1f, -1f })
             {
                 Vector3 dir = new Vector3(0, -Mathf.Sin(theta), s * Mathf.Cos(theta));
@@ -205,7 +205,13 @@ public static partial class VillageKit
         var box = ChamferBox(.22f); var soft = ChamferBox(.34f);
         float hx = size.x * .5f, hz = size.y * .5f;
 
+        FarmGroundRange(tr.position, tr.rotation, size, out float low, out float high);
+        tr.position = new Vector3(tr.position.x, high, tr.position.z);
+
         // swept earth pad, slightly wider than the frame
+        float fillDepth = high - low + .15f;
+        Part("TerraceFill", box, Mat(SoilWarm), tr, Vector3.down * (fillDepth * .5f), id,
+            new Vector3(size.x + 1.16f, fillDepth, size.y + 1.16f));
         Part("Pad", ChamferBox(.08f), Mat(blight ? new Color(.55f, .45f, .33f) : SandyPad, default, .3f, .04f), tr, new Vector3(0, .02f, 0), id, new Vector3(size.x + 1.2f, .05f, size.y + 1.2f));
 
         // ---- frame
@@ -285,6 +291,7 @@ public static partial class VillageKit
 
         // ---- sign post with need cards that face the camera
         var sign = new GameObject("Sign"); sign.transform.SetParent(tr, false); sign.transform.localPosition = new Vector3(-hx - .6f, 0, -hz - .4f);
+        sign.transform.position = Ground(sign.transform.position);
         var wood = Mat(new Color(.52f, .37f, .25f), default, .3f);
         Cyl(sign.transform, "SignPost", wood, Vector3.zero, new Vector3(0, 1.0f, 0), .045f, 6);
         Part("SignBoard", box, Mat(new Color(.85f, .78f, .6f)), sign.transform, new Vector3(0, .9f, 0), id, new Vector3(.46f, .26f, .05f));
@@ -301,30 +308,45 @@ public static partial class VillageKit
         return root;
     }
 
+    /// <summary>Samples the same bed and shoulder footprint used for the raised terrace.</summary>
+    public static void FarmGroundRange(Vector3 centre, Quaternion angle, Vector2 size, out float low, out float high)
+    {
+        low = float.PositiveInfinity;
+        high = float.NegativeInfinity;
+        const int halfSamples = 2;
+        Vector2 half = size * .5f + Vector2.one * .6f;
+        for (int x = -halfSamples; x <= halfSamples; x++)
+            for (int z = -halfSamples; z <= halfSamples; z++)
+            {
+                var local = new Vector3(half.x * x / halfSamples, 0f, half.y * z / halfSamples);
+                float height = Ground(centre + angle * local).y;
+                low = Mathf.Min(low, height);
+                high = Mathf.Max(high, height);
+            }
+    }
+
     // ------------------------------------------------------------------ pump & stump helpers
     static void AddWaterPump(Transform parent, Vector3 lp, System.Random rng)
     {
+        // Hand pump: base plate, column, cap. Each part overlaps its neighbour so nothing floats.
         var pump = new GameObject("WaterPump"); pump.transform.SetParent(parent, false);
         pump.transform.localPosition = lp;
+        pump.transform.position = Ground(pump.transform.position);
         var iron = Mat(new Color(.55f, .45f, .35f), new Color(.25f, .18f, .12f), .2f, .15f);
         var redIron = Mat(new Color(.62f, .2f, .22f), new Color(.3f, .1f, .12f), .2f, .15f);
         var wood = Mat(new Color(.5f, .38f, .26f));
         var id = Quaternion.identity;
         var box = ChamferBox(.18f);
-        // base
-        Part("PumpBase", box, iron, pump.transform, new Vector3(0, .12f, 0), id, new Vector3(.45f, .22f, .45f));
-        // vertical column
-        Part("PumpColumn", box, redIron, pump.transform, new Vector3(0, .62f, 0), id, new Vector3(.12f, 1.05f, .12f));
-        // spout
-        Cyl(pump.transform, "PumpSpout", iron, new Vector3(.18f, 1.05f, 0), new Vector3(.55f, 1.05f, 0), .04f, 6);
-        // handle pivot
-        Part("PumpPivot", box, iron, pump.transform, new Vector3(0, 1.55f, 0), id, new Vector3(.10f, .10f, .10f));
-        // handle arm (angled up)
-        Cyl(pump.transform, "PumpHandle", redIron, new Vector3(0, 1.55f, 0), new Vector3(-.45f, 2.05f, 0), .045f, 6);
-        Part("HandleGrip", box, wood, pump.transform, new Vector3(-.45f, 2.12f, 0), id, new Vector3(.05f, .1f, .15f));
-        // bucket on the ground
+        const float baseTop = .23f, capY = 1.24f;
+        Part("PumpBase", box, iron, pump.transform, new Vector3(0, baseTop * .5f, 0), id, new Vector3(.45f, baseTop, .45f));
+        Part("PumpColumn", box, redIron, pump.transform, new Vector3(0, (baseTop + capY) * .5f, 0), id, new Vector3(.12f, capY - baseTop, .12f));
+        Part("PumpPivot", box, iron, pump.transform, new Vector3(0, capY, 0), id, new Vector3(.16f, .10f, .16f));
+        Cyl(pump.transform, "PumpSpout", iron, new Vector3(0, capY - .18f, 0), new Vector3(.52f, capY - .18f, 0), .04f, 6);
+        Cyl(pump.transform, "PumpHandle", redIron, new Vector3(0, capY, 0), new Vector3(-.45f, capY + .50f, 0), .045f, 6);
+        Part("HandleGrip", box, wood, pump.transform, new Vector3(-.45f, capY + .57f, 0), id, new Vector3(.05f, .10f, .15f));
         var bucket = new GameObject("Bucket"); bucket.transform.SetParent(pump.transform, false);
-        bucket.transform.localPosition = new Vector3(-.15f, .02f, .3f);
+        bucket.transform.localPosition = new Vector3(.52f, .02f, 0f);
+        bucket.transform.position = Ground(bucket.transform.position);
         Part("BucketBody", Ring(12, .82f), wood, bucket.transform, new Vector3(0, .09f, 0), id, new Vector3(.14f, .16f, .14f));
         Part("BucketWater", Disc(3, 0, 10), Mat(new Color(.45f, .7f, .85f)), bucket.transform, new Vector3(0, .02f, 0), id, new Vector3(.12f, 1, .12f));
         Part("BucketHandle", box, iron, bucket.transform, new Vector3(0, .20f, 0), id, new Vector3(.16f, .02f, .02f));
@@ -334,6 +356,7 @@ public static partial class VillageKit
     {
         var stump = new GameObject("Stump"); stump.transform.SetParent(parent, false);
         stump.transform.localPosition = lp;
+        stump.transform.position = Ground(stump.transform.position);
         var bark = Mat(new Color(.38f, .28f, .20f), default, .35f, .1f);
         var woodCut = Mat(new Color(.72f, .52f, .38f), default, .3f, .12f);
         var iron = Mat(Iron);
@@ -494,7 +517,7 @@ public static partial class VillageKit
 
     /// <summary>Warm sandy footpath draped over the terrain along a polyline: scalloped verge, worn centre, speckled pebbles
     /// (from the road shader), grass tufts along the edges and the occasional puddle.</summary>
-    public static GameObject Path(IList<Vector3> pts, float width, Transform parent, int seed = 1, float puddleChance = .35f)
+    public static GameObject Path(IList<Vector3> pts, float width, Transform parent, int seed = 1, float puddleChance = .35f, float surfaceOffset = 0f)
     {
         var rng = new System.Random(seed);
         var root = Root("Path", pts[0], parent); root.transform.position = Vector3.zero;
@@ -513,7 +536,7 @@ public static partial class VillageKit
                 float w = width * 1.35f * (.88f + .3f * Mathf.PerlinNoise(acc * .25f, seed));
                 foreach (float sgn in new[] { -1f, 1f })
                 {
-                    Vector3 q = p + side * sgn * w * .5f; q = Ground(q) + Vector3.up * .035f;
+                    Vector3 q = p + side * sgn * w * .5f; q = Ground(q) + Vector3.up * (.035f + surfaceOffset);
                     v.Add(q); uv.Add(new Vector2(sgn, acc / 3f)); cols.Add(terr);
                 }
                 acc += .6f;

@@ -92,7 +92,7 @@ public class CutsceneSkip : MonoBehaviour
             group.blocksRaycasts = group.interactable = show;
         }
         // Esc only counts once the tag is showing, so a stray press at the start of a cutscene does nothing.
-        if (show && Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame) Fire();
+        if (show && WishboundInput.Pressed(Key.Escape, KeyCode.Escape)) Fire();
     }
 
     void Fire()

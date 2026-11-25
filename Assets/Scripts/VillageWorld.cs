@@ -237,12 +237,67 @@ public class VillageWorld : MonoBehaviour
     const float Cell = .8f;
     int nx, nz; Vector3 origin; bool[] walk; float[] gy; float[] cost;
     readonly Collider[] buf = new Collider[24];
+    sealed class NavigationArea
+    {
+        public Vector3 Origin;
+        public int Size;
+        public bool[] Walk;
+        public float[] Heights, Costs;
+
+        public bool Contains(Vector3 point, float inset = 0f)
+        {
+            float extent = Size * Cell - inset;
+            return point.x >= Origin.x + inset && point.z >= Origin.z + inset &&
+                   point.x < Origin.x + extent && point.z < Origin.z + extent;
+        }
+    }
+    readonly List<NavigationArea> navigationAreas = new List<NavigationArea>();
 
     IEnumerator BuildNav()
     {
         var vd = VillageDressing.Instance;
         Vector3 centre = vd.Well ? vd.Well.position : vd.transform.position;
-        float half = 78f;
+        navigationAreas.Clear();
+        yield return BuildNavigationArea(centre, 78f);
+        foreach (var plot in plots)
+            if (plot && !Covered(plot.transform.position, 10f))
+                yield return BuildNavigationArea(plot.transform.position, 44f);
+        var community = SettlerCommunity.Instance;
+        if (community)
+            foreach (var settler in community.settlers)
+                if (settler && !Covered(settler.home, 10f))
+                    yield return BuildNavigationArea(settler.home, 30f);
+        SelectNavigationArea(navigationAreas[0]);
+        NavReady = true;
+        Debug.Log("[VillageWorld] Navigation ready across " + navigationAreas.Count + " local areas.");
+    }
+
+    bool Covered(Vector3 point, float inset)
+    {
+        foreach (var area in navigationAreas) if (area.Contains(point, inset)) return true;
+        return false;
+    }
+
+    NavigationArea FindNavigationArea(Vector3 a, Vector3 b)
+    {
+        foreach (var area in navigationAreas)
+            if (area.Contains(a) && area.Contains(b)) return area;
+        return null;
+    }
+
+    public bool SharesNavigationArea(Vector3 a, Vector3 b) => FindNavigationArea(a,b) != null;
+
+    void SelectNavigationArea(NavigationArea area)
+    {
+        nx = nz = area.Size;
+        origin = area.Origin;
+        walk = area.Walk;
+        gy = area.Heights;
+        cost = area.Costs;
+    }
+
+    IEnumerator BuildNavigationArea(Vector3 centre, float half)
+    {
         nx = nz = Mathf.CeilToInt(half * 2 / Cell);
         origin = new Vector3(centre.x - half, 0, centre.z - half);
         walk = new bool[nx * nz]; gy = new float[nx * nz]; cost = new float[nx * nz];
@@ -280,7 +335,7 @@ public class VillageWorld : MonoBehaviour
         // paths are easier going; crops are not to be trampled
         foreach (var p in RoadPoints()) MarkRoad(p);
         foreach (var pl in plots) if (pl) MarkPlot(pl);
-        NavReady = true;
+        navigationAreas.Add(new NavigationArea { Origin = origin, Size = nx, Walk = walk, Heights = gy, Costs = cost });
         int open = 0; foreach (var w in walk) if (w) open++;
         Debug.Log("[VillageWorld] nav grid " + nx + "x" + nz + ", " + open + " walkable cells");
     }
@@ -317,20 +372,42 @@ public class VillageWorld : MonoBehaviour
 
     void MarkPlot(FarmPlotState pl)
     {
-        for (int z = 0; z < nz; z++) for (int x = 0; x < nx; x++)
+        Vector3 p = pl.transform.position;
+        float reach = pl.size.magnitude * .5f + .5f;
+        int x0 = Mathf.Max(0, Mathf.FloorToInt((p.x - reach - origin.x) / Cell));
+        int z0 = Mathf.Max(0, Mathf.FloorToInt((p.z - reach - origin.z) / Cell));
+        int x1 = Mathf.Min(nx - 1, Mathf.FloorToInt((p.x + reach - origin.x) / Cell));
+        int z1 = Mathf.Min(nz - 1, Mathf.FloorToInt((p.z + reach - origin.z) / Cell));
+        for (int z = z0; z <= z1; z++) for (int x = x0; x <= x1; x++)
             {
                 int i = z * nx + x; if (!walk[i]) continue;
                 if (pl.Contains(CellCentre(x, z), .35f)) cost[i] += 4f;
             }
     }
 
-    public void AddPlotCost(FarmPlotState pl) { if (NavReady) MarkPlot(pl); }
+    public void AddPlotCost(FarmPlotState pl)
+    {
+        if (!NavReady) return;
+        foreach (var area in navigationAreas)
+        {
+            SelectNavigationArea(area);
+            MarkPlot(pl);
+        }
+    }
 
     Vector3 CellCentre(int x, int z) => new Vector3(origin.x + (x + .5f) * Cell, 0, origin.z + (z + .5f) * Cell);
     bool InGrid(int x, int z) => x >= 0 && z >= 0 && x < nx && z < nz;
     public bool Walkable(Vector3 p)
     {
         if (!NavReady) return true;
+        var area = FindNavigationArea(p,p);
+        if (area == null) return false;
+        SelectNavigationArea(area);
+        return WalkableInArea(p);
+    }
+
+    bool WalkableInArea(Vector3 p)
+    {
         int x = Mathf.FloorToInt((p.x - origin.x) / Cell), z = Mathf.FloorToInt((p.z - origin.z) / Cell);
         return InGrid(x, z) && walk[z * nx + x];
     }
@@ -381,9 +458,12 @@ public class VillageWorld : MonoBehaviour
     public List<Vector3> FindPath(Vector3 a, Vector3 b)
     {
         var res = new List<Vector3>();
-        int s = NavReady ? Nearest(a) : -1, g = NavReady ? Nearest(b) : -1;
+        var area = NavReady ? FindNavigationArea(a,b) : null;
+        if (area == null) return res;
+        SelectNavigationArea(area);
+        int s = Nearest(a), g = Nearest(b);
         if (s < 0 || g < 0) return res;
-        if (s == g) { if (Walkable(b)) res.Add(b); return res; }
+        if (s == g) { if (WalkableInArea(b)) res.Add(b); return res; }
         int n = nx * nz;
         if (gScore == null || gScore.Length != n) { gScore = new float[n]; came = new int[n]; state = new byte[n]; }
         System.Array.Clear(state, 0, n);
@@ -422,7 +502,7 @@ public class VillageWorld : MonoBehaviour
             int ci = cells[far]; res.Add(new Vector3(origin.x + ((ci % nx) + .5f) * Cell, gy[ci], origin.z + ((ci / nx) + .5f) * Cell));
             idx = far;
         }
-        if (Walkable(b)) res.Add(b);
+        if (WalkableInArea(b)) res.Add(b);
         return res;
     }
 
@@ -446,6 +526,9 @@ public class VillageWorld : MonoBehaviour
     {
         spot = near;
         if (!NavReady) return false;
+        var area = FindNavigationArea(near,near);
+        if (area == null) return false;
+        SelectNavigationArea(area);
         for (int i = 0; i < 24; i++)
         {
             float a = (float)rng.NextDouble() * Mathf.PI * 2, d = radius * (.3f + .7f * (float)rng.NextDouble());

@@ -30,7 +30,7 @@ public class WellRig : MonoBehaviour
 
     /// <summary>Starts a lower-crank-raise sequence; call from a settler's FetchWater coroutine. Safe to call with
     /// no bucket/windlass present - it's then just a timer the caller can wait on.</summary>
-    public void DrawWater() { if (!Drawing) { drawT = 0f; if (bucketWater) bucketWater.SetActive(false); } }
+    public void DrawWater() { if (!Drawing) { drawT = 0f; WorldSound.Cue(transform, "Cart", 22f); if (bucketWater) bucketWater.SetActive(false); } }
     public bool Drawing => drawT >= 0f && drawT < drawDuration;
 
     void Update()
@@ -47,6 +47,7 @@ public class WellRig : MonoBehaviour
             rope.localPosition = new Vector3(0, bottom, 0);
             rope.localScale = new Vector3(rope.localScale.x, Mathf.Max(.02f, 1.6f - bottom), rope.localScale.z);
         }
+        if (drawT - Time.deltaTime < drawDuration * .35f && p >= .35f) WorldSound.Cue(transform, "Water", 24f);
         if (bucketWater && p > .65f) bucketWater.SetActive(true);
         if (windlass) windlass.Rotate(Vector3.right, (depth > .5f ? -1 : 1) * 160f * Time.deltaTime, Space.Self);
         if (drawT >= drawDuration) drawT = -1f;

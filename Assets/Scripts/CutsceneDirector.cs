@@ -18,8 +18,11 @@ public sealed class CutsceneDirector : MonoBehaviour
     CinemachineCamera cam; CinemachineBrain brain; Camera mainCam; IslandThirdPersonController player;
     bool active; int depth;
     bool playerWasEnabled, wispWasHidden; float savedSpeedCap; CursorLockMode savedLock; bool savedCursorVisible;
-    Func<Vector3> posFn, lookFn; float fovGoal = 40, fov;
+    Func<Vector3> posFn, lookFn; float fovGoal = 40, fov, roll;
     Vector3 fromP, fromL, curP, curL; float fromF, t, dur;
+    public Vector3 Focus => curL;
+    /// <summary>Current letterbox bar height as a 0..1 screen fraction (0 when no cutscene).</summary>
+    public static float BarFraction => Instance ? .105f * Smoother(Instance.bars) : 0f;
     public float handheld = .012f;
     RectTransform barTop, barBottom; float bars, barsGoal;
     CinemachineBlendDefinition savedBlend; bool blendSaved;
@@ -39,6 +42,7 @@ public sealed class CutsceneDirector : MonoBehaviour
         var p = GameObject.FindGameObjectWithTag("Player"); player = p ? p.GetComponent<IslandThirdPersonController>() : null;
         if (!cam) { var g = new GameObject("CutsceneCam"); g.transform.SetParent(transform, false); cam = g.AddComponent<CinemachineCamera>(); }
         curP = mainCam.transform.position; curL = curP + mainCam.transform.forward * 10f; fov = mainCam.fieldOfView;
+        roll = 0f;
         posFn = () => curP; lookFn = () => curL; fromP = curP; fromL = curL; fromF = fov; fovGoal = fov; dur = 0; t = 0;
         Apply();
         if (brain) { savedBlend = brain.DefaultBlend; blendSaved = true; brain.DefaultBlend = new CinemachineBlendDefinition(CinemachineBlendDefinition.Styles.Cut, 0f); }
@@ -56,12 +60,18 @@ public sealed class CutsceneDirector : MonoBehaviour
         if (!active) return;
         if (--depth > 0) return;
         active = false; barsGoal = 0f; RestoreCutaway();
-        if (brain) brain.DefaultBlend = new CinemachineBlendDefinition(CinemachineBlendDefinition.Styles.EaseInOut, blendBack);
+        if (brain)
+        {
+            if (player && Vector3.Distance(cam.transform.position, player.transform.position) > 25f) blendBack = 0f;
+            brain.DefaultBlend = new CinemachineBlendDefinition(blendBack > 0f ?
+                CinemachineBlendDefinition.Styles.EaseInOut : CinemachineBlendDefinition.Styles.Cut, blendBack);
+        }
         cam.enabled = false;
         if (player) { player.enabled = playerWasEnabled; player.speedCap = savedSpeedCap; }
         Cursor.lockState = savedLock; Cursor.visible = savedCursorVisible;
         WispCursor.Hidden = wispWasHidden;
-        StartCoroutine(RestoreBlend(blendBack + .3f));
+        if (isActiveAndEnabled) StartCoroutine(RestoreBlend(blendBack + .3f));
+        else if (brain && blendSaved) brain.DefaultBlend = savedBlend;
     }
 
     IEnumerator RestoreBlend(float after)
@@ -87,10 +97,11 @@ public sealed class CutsceneDirector : MonoBehaviour
 
     public static bool ClearShot(Vector3 position, Vector3 focus)
     {
-        if (Physics.CheckSphere(position, .18f, ~0, QueryTriggerInteraction.Ignore)) return false;
+        foreach (var overlap in Physics.OverlapSphere(position, .25f, ~0, QueryTriggerInteraction.Ignore))
+            if (CameraGroundClearance.BlocksCamera(overlap)) return false;
         float distance = Vector3.Distance(position, focus);
         foreach (var hit in Physics.RaycastAll(position, (focus-position).normalized, distance, ~0, QueryTriggerInteraction.Ignore))
-            if (hit.distance < distance - .55f) return false;
+            if (CameraGroundClearance.BlocksCamera(hit.collider) && hit.distance < distance - .55f) return false;
         return true;
     }
 
@@ -150,10 +161,23 @@ public sealed class CutsceneDirector : MonoBehaviour
         Vector3 safe=SafeShot(requested,focus,f);
         Vector3 correction=safe-requested;
         PrepareCutaway(safe,focus);
+        roll = 0f;
         var original=pos; pos=()=>original()+correction;
         fromP = curP; fromL = curL; fromF = fov; posFn = pos; lookFn = look; fovGoal = f; dur = Mathf.Max(0f, seconds); t = 0f;
         if (dur <= 0f) { curP = pos(); curL = look(); fov = f; Apply(); }
     }
+    // Continuous shots provide their own framing and occlusion correction each frame.
+    public void TrackFrame(Vector3 position, Vector3 focus, float fieldOfView, float dutch = 0f)
+    {
+        if (!active) return;
+        posFn = lookFn = null;
+        curP = position;
+        curL = focus;
+        fov = fieldOfView;
+        roll = dutch;
+        Apply();
+    }
+
     public void Cut(Func<Vector3> pos, Func<Vector3> look, float fovDeg) => SetGoal(pos, look, fovDeg, 0f);
     public void Cut(Vector3 pos, Vector3 look, float fovDeg) => SetGoal(() => pos, () => look, fovDeg, 0f);
     public IEnumerator Glide(Func<Vector3> pos, Func<Vector3> look, float fovDeg, float seconds)
@@ -179,14 +203,33 @@ public sealed class CutsceneDirector : MonoBehaviour
         Apply();
     }
 
+    readonly RaycastHit[] shotHits = new RaycastHit[96];
+
     void Apply()
     {
         if (!cam) return;
-        Vector3 look = curL - curP; if (look.sqrMagnitude < .0001f) look = Vector3.forward;
+        Vector3 cameraPoint = curP;
+        float radius = Mathf.Max(.3f, cam.Lens.NearClipPlane * 1.8f);
+        if (TerrainProbe.TryGetGroundY(cameraPoint.x, cameraPoint.z, out float hill))
+            cameraPoint.y = Mathf.Max(cameraPoint.y, hill + radius + .25f);
+        Vector3 offset = cameraPoint - curL;
+        if (offset.sqrMagnitude > .01f)
+        {
+            int count = Physics.SphereCastNonAlloc(curL, radius, offset.normalized, shotHits,
+                offset.magnitude, ~0, QueryTriggerInteraction.Ignore);
+            float travel = offset.magnitude;
+            for (int i = 0; i < count; i++)
+                if (CameraGroundClearance.BlocksCamera(shotHits[i].collider))
+                    travel = Mathf.Min(travel, Mathf.Max(.05f, shotHits[i].distance - .08f));
+            cameraPoint = curL + offset.normalized * travel;
+        }
+        if (TerrainProbe.TryGetGroundY(cameraPoint.x,cameraPoint.z,out float floor))
+            cameraPoint.y = Mathf.Max(cameraPoint.y, floor + radius + .15f);
+        Vector3 look = curL - cameraPoint; if (look.sqrMagnitude < .0001f) look = Vector3.forward;
         float n = Time.time;
         Quaternion shake = Quaternion.Euler((Mathf.PerlinNoise(n * .6f, 3f) - .5f) * 2f * handheld * 60f, (Mathf.PerlinNoise(n * .5f, 9f) - .5f) * 2f * handheld * 60f, 0);
-        cam.transform.SetPositionAndRotation(curP, Quaternion.LookRotation(look) * shake);
-        var lens = cam.Lens; lens.FieldOfView = fov; cam.Lens = lens;
+        cam.transform.SetPositionAndRotation(cameraPoint, Quaternion.LookRotation(look) * shake);
+        var lens = cam.Lens; lens.FieldOfView = fov; lens.Dutch = roll; cam.Lens = lens;
     }
 
     void OnDisable() { if (active) { depth = 1; End(0f); } }

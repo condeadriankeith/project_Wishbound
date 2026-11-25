@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0f0f0fe7fcb240b0b143cfcd47541270, type: 3}
+  m_Name: ChildStepSand
+  m_EditorClassIdentifier:
+  clips:
+  - {fileID: 8300000, guid: 46c766cb21314e19a35cfcace43547b0, type: 3}
+  bus: {fileID: 24310011, guid: f049443466b93e4479b4c34e9aba4b29, type: 2}
+  gain: 0.04675
+  pitchSpread: 0.035
+  priority: 205
+  cooldown: 0.2
+  maxVoices: 4
+  screen: 0

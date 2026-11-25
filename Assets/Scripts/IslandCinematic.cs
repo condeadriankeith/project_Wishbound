@@ -31,21 +31,21 @@ public class IslandCinematic : MonoBehaviour
         vol.sharedProfile = p;
 
         var bloom = p.Add<Bloom>(true);
-        bloom.threshold.Override(0.85f); bloom.intensity.Override(bloomIntensity);
+        bloom.threshold.Override(1.06f); bloom.intensity.Override(bloomIntensity);
         bloom.scatter.Override(0.72f); bloom.tint.Override(new Color(1f, 0.93f, 0.82f));
         bloom.highQualityFiltering.Override(true);
 
         var tm = p.Add<Tonemapping>(true); tm.mode.Override(TonemappingMode.ACES);
 
         var ca = p.Add<ColorAdjustments>(true);
-        ca.postExposure.Override(0.25f); ca.contrast.Override(14f); ca.saturation.Override(16f);
+        ca.postExposure.Override(0.25f); ca.contrast.Override(9f); ca.saturation.Override(10f);
         ca.colorFilter.Override(new Color(1f, 0.96f, 0.9f));
 
         var vg = p.Add<Vignette>(true);
         vg.intensity.Override(0.3f); vg.smoothness.Override(0.45f);
 
 
-        var chroma = p.Add<ChromaticAberration>(true); chroma.intensity.Override(0.2f);
+        var chroma = p.Add<ChromaticAberration>(true); chroma.intensity.Override(0.025f);
         var grain = p.Add<FilmGrain>(true); grain.type.Override(FilmGrainLookup.Thin1); grain.intensity.Override(0.12f);
 
         // ---- atmosphere ----
@@ -57,12 +57,12 @@ public class IslandCinematic : MonoBehaviour
         Light sun = RenderSettings.sun;
         if (sun == null) foreach (var l in FindObjectsOfType<Light>()) if (l.type == LightType.Directional) { sun = l; break; }
         Vector3 sunDir = sun != null ? sun.transform.forward : new Vector3(0.4f, -0.8f, 0.3f).normalized;
-        if (sun != null) { sun.color = Color.Lerp(sun.color, new Color(1f, 0.88f, 0.7f), 0.5f); sun.shadows = LightShadows.Soft; }
+        if (sun != null) { sun.color = Color.Lerp(sun.color, new Color(1f, 0.88f, 0.7f), 0.5f); sun.shadows = LightShadows.Soft; sun.shadowStrength = .78f; sun.shadowNormalBias = .34f; sun.shadowBias = .045f; }
 
         root = new GameObject("Atmosphere").transform;
         var tex = SoftTex();
-        Shader sh = Shader.Find("Legacy Shaders/Particles/Additive");
-        if (sh == null) sh = Shader.Find("Mobile/Particles/Additive");
+        Shader sh = Resources.Load<Shader>("WishAtmosphereAdditive");
+        if (!sh) { Debug.LogWarning("Atmosphere particle shader is unavailable."); yield break; }
         var mat = new Material(sh); mat.mainTexture = tex;
         if (mat.HasProperty("_TintColor")) mat.SetColor("_TintColor", Color.white);
 

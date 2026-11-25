@@ -33,16 +33,17 @@ public static class VillageKitV2
             Part(body.transform, "Side", Box, Wood, new Vector3(side * .47f, .5f, -.1f), Quaternion.identity, new Vector3(.05f, .18f, 1.45f));
         Part(body.transform, "Back", Box, Wood, new Vector3(0, .5f, -.82f), Quaternion.identity, new Vector3(.9f, .18f, .05f));
         // axle + wheels
-        var axle = Part(body.transform, "Axle", VillageKit.Ring(8, .6f), Iron, new Vector3(0, .1f, -.3f), Quaternion.Euler(0, 0, 90), new Vector3(.05f, 1.15f, .05f));
+        var axle = Part(root.transform, "Axle", VillageKit.Ring(8, .6f), Iron, new Vector3(.575f, cart.wheelRadius, -.3f), Quaternion.Euler(0, 0, 90), new Vector3(.05f, 1.15f, .05f));
         GameObject Wheel(float side)
         {
             var w = new GameObject("Wheel"); w.transform.SetParent(root.transform, false);
-            w.transform.localPosition = new Vector3(side * .58f, .34f, -.3f);
-            Part(w.transform, "Rim", VillageKit.Ring(10, .72f), WoodDark, Vector3.zero, Quaternion.identity, new Vector3(.68f, .09f, .68f));
+            w.transform.localPosition = new Vector3(side * .58f, cart.wheelRadius, -.3f);
+            w.transform.localRotation = Quaternion.Euler(0, 0, 90);
+            Part(w.transform, "Rim", VillageKit.Ring(10, .72f), WoodDark, Vector3.zero, Quaternion.identity, new Vector3(cart.wheelRadius, .09f, cart.wheelRadius));
             for (int i = 0; i < 6; i++)
             {
                 float a = i * 60f;
-                Part(w.transform, "Spoke", Box, Wood, Vector3.zero, Quaternion.Euler(0, 0, a), new Vector3(.62f, .035f, .035f));
+                Part(w.transform, "Spoke", Box, Wood, Vector3.zero, Quaternion.Euler(0, a, 0), new Vector3(.62f, .035f, .035f));
             }
             Part(w.transform, "Hub", VillageKit.Blob(seed + (int)side, .05f), Iron, Vector3.zero, Quaternion.identity, Vector3.one * .12f);
             return w;

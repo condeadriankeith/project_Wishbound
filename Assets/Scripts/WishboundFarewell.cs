@@ -149,6 +149,7 @@ public sealed class WishboundFarewell : MonoBehaviour
 
         // 3. the wisp flies off screen
         Vector2 ctrl = last + new Vector2(-W * .07f, -H * .14f), exit = new Vector2(W * 1.2f, H * 1.25f);
+        WorldSound.Menu("Drift");
         for (float t = 0; t < FlyTime; t += Time.unscaledDeltaTime)
         {
             float u = t / FlyTime, e = Mathf.Pow(u, 2.3f);

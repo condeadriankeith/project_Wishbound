@@ -35,6 +35,10 @@ public class StarOrbFX : MonoBehaviour
     [Header("State (driven by StarRadiance)")]
     public float radianceScale = 1f;
     public float trailScale = 1f;
+    public float RiderLighting { get; set; }
+    public float RideWake { get; set; }
+    public float FragmentPower { get; set; }
+    public float particleScale = 1f;
     [Range(0, 1)] public float matte;       // Roots: solid matte ivory
     [Range(0, 1)] public float prismatic;   // Tether: high-contrast prismatic shimmer
 
@@ -100,9 +104,9 @@ public class StarOrbFX : MonoBehaviour
     {
         var ps = NewSystem("Sparkle shell", false);
         var m = ps.main; m.startLifetime = new ParticleSystem.MinMaxCurve(.9f, 1.8f); m.startSpeed = 0; m.maxParticles = 120;
-        m.startSize = new ParticleSystem.MinMaxCurve(.035f, .08f); m.startColor = new ParticleSystem.MinMaxGradient(sparkColors) { mode = ParticleSystemGradientMode.RandomColor };
+        m.startSize = new ParticleSystem.MinMaxCurve(.035f * particleScale, .08f * particleScale); m.startColor = new ParticleSystem.MinMaxGradient(sparkColors) { mode = ParticleSystemGradientMode.RandomColor };
         var em = ps.emission; em.rateOverTime = 45;
-        var sh = ps.shape; sh.shapeType = ParticleSystemShapeType.Sphere; sh.radius = .62f; sh.radiusThickness = .15f;
+        var sh = ps.shape; sh.shapeType = ParticleSystemShapeType.Sphere; sh.radius = .62f * particleScale; sh.radiusThickness = .15f;
         var v = ps.velocityOverLifetime; v.enabled = true; v.space = ParticleSystemSimulationSpace.Local;
         v.orbitalX = new ParticleSystem.MinMaxCurve(-.6f, .6f); v.orbitalY = new ParticleSystem.MinMaxCurve(1.8f, 3.2f); v.orbitalZ = new ParticleSystem.MinMaxCurve(-.4f, .4f);
         v.radial = new ParticleSystem.MinMaxCurve(.05f, .2f);
@@ -119,7 +123,7 @@ public class StarOrbFX : MonoBehaviour
         var m = ps.main; m.startLifetime = new ParticleSystem.MinMaxCurve(.7f, 1.3f); m.startSpeed = 0; m.maxParticles = 600;
         m.startSize = new ParticleSystem.MinMaxCurve(.14f, .32f); m.startColor = Color.white;
         var em = ps.emission; em.rateOverTime = 6; em.rateOverDistance = 16;
-        var sh = ps.shape; sh.shapeType = ParticleSystemShapeType.Sphere; sh.radius = .3f;
+        var sh = ps.shape; sh.shapeType = ParticleSystemShapeType.Sphere; sh.radius = .3f * particleScale;
         var noise = ps.noise; noise.enabled = true; noise.strength = .45f; noise.frequency = 1.2f; noise.scrollSpeed = .6f; noise.damping = true;
         var sz = ps.sizeOverLifetime; sz.enabled = true; sz.size = new ParticleSystem.MinMaxCurve(1, AnimationCurve.EaseInOut(0, 1, 1, 0));
         var col = ps.colorOverLifetime; col.enabled = true; col.color = new ParticleSystem.MinMaxGradient(trailColors);
@@ -130,10 +134,10 @@ public class StarOrbFX : MonoBehaviour
     {
         var ps = NewSystem("Star motes", true);
         var m = ps.main; m.startLifetime = new ParticleSystem.MinMaxCurve(3, 5); m.startSpeed = new ParticleSystem.MinMaxCurve(.03f, .12f); m.maxParticles = 40;
-        m.startSize = new ParticleSystem.MinMaxCurve(.04f, .07f); m.startColor = new ParticleSystem.MinMaxGradient(sparkColors) { mode = ParticleSystemGradientMode.RandomColor };
+        m.startSize = new ParticleSystem.MinMaxCurve(.04f * particleScale, .07f * particleScale); m.startColor = new ParticleSystem.MinMaxGradient(sparkColors) { mode = ParticleSystemGradientMode.RandomColor };
         m.gravityModifier = -.01f;
         var em = ps.emission; em.rateOverTime = 4;
-        var sh = ps.shape; sh.shapeType = ParticleSystemShapeType.Sphere; sh.radius = 1.3f;
+        var sh = ps.shape; sh.shapeType = ParticleSystemShapeType.Sphere; sh.radius = 1.3f * particleScale;
         var noise = ps.noise; noise.enabled = true; noise.strength = .2f; noise.frequency = .4f;
         var col = ps.colorOverLifetime; col.enabled = true; col.color = FadeInOut(.2f, .7f);
         ps.Play(); return ps;
@@ -154,12 +158,14 @@ public class StarOrbFX : MonoBehaviour
         float pulse = (Mathf.Sin(t) * .5f + .5f) * .8f + (Mathf.Sin(t * 2.7f + 1.3f) * .5f + .5f) * .2f;
         pulse *= pulseDepth;
         float comet = Mathf.SmoothStep(0, 1, cometBlend);
+        float riderExposure = Mathf.Lerp(1f, .66f, RiderLighting);
+        float lightExposure = Mathf.Lerp(1f, .14f, RiderLighting);
 
         if (bodyRenderer)
         {
             bodyRenderer.GetPropertyBlock(mpb);
-            mpb.SetFloat(PulseId, pulse * (1 - matte * .8f)); mpb.SetFloat(IntensityId, (1 + comet * 1.6f) * Mathf.Lerp(1, .42f, matte) * Mathf.Max(.05f, radianceScale));
-            mpb.SetFloat(RimId, Mathf.Lerp(.55f, .2f, matte) * (1 + prismatic * .8f) * Mathf.Max(.2f, radianceScale));
+            mpb.SetFloat(PulseId, pulse * (1 - matte * .8f)); mpb.SetFloat(IntensityId, (1 + comet * 1.6f) * Mathf.Lerp(1, .42f, matte) * Mathf.Max(.05f, radianceScale) * riderExposure);
+            mpb.SetFloat(RimId, Mathf.Lerp(.55f, .2f, matte) * (1 + prismatic * .8f) * Mathf.Max(.2f, radianceScale) * riderExposure);
             mpb.SetFloat(BandAmountId, Mathf.Lerp(.55f, .05f, matte));
             mpb.SetColor(MidId, Color.Lerp(new Color(1.05f, .42f, .08f), new Color(.82f, .78f, .7f), matte));
             mpb.SetColor(CoreId, Color.Lerp(new Color(1.9f, 1.45f, .85f), new Color(.95f, .92f, .85f), matte));
@@ -169,16 +175,17 @@ public class StarOrbFX : MonoBehaviour
         if (halo)
         {
             float parentScale = halo.parent ? Mathf.Max(.01f, halo.parent.lossyScale.x) : 1;
-            float s = haloSize * (1 + pulse * .12f) * Mathf.Lerp(1, 3.2f, comet) / parentScale;
+            float s = haloSize * (1 + FragmentPower * .085f) * (1 + pulse * .12f) * Mathf.Lerp(1, 3.2f, comet) / parentScale;
             halo.localScale = new Vector3(s, s, s);
-            haloRenderer.GetPropertyBlock(mpb); mpb.SetFloat(IntensityId, (.42f + pulse * .18f) * Mathf.Lerp(1, 4.5f, comet)); haloRenderer.SetPropertyBlock(mpb);
+            haloRenderer.GetPropertyBlock(mpb); mpb.SetFloat(IntensityId, (.42f + pulse * .18f) * Mathf.Lerp(1, 4.5f, comet) * riderExposure); haloRenderer.SetPropertyBlock(mpb);
         }
-        if (glowLight) { glowLight.intensity = lightIntensity * (.85f + pulse * .3f) * Mathf.Lerp(1, 3, comet) * Mathf.Max(.05f, radianceScale); glowLight.color = Color.Lerp(new Color(1f, .85f, .62f), new Color(1f, .93f, .82f), matte); glowLight.range = Mathf.Lerp(lightRange, 22, comet); }
+        if (glowLight) { glowLight.intensity = lightIntensity * (.85f + pulse * .3f) * Mathf.Lerp(1, 3, comet) * Mathf.Max(.05f, radianceScale) * lightExposure; glowLight.color = Color.Lerp(new Color(1f, .85f, .62f), new Color(1f, .93f, .82f), matte); glowLight.range = Mathf.Lerp(lightRange, 22, comet); }
         if (trail)
         {
-            var em = trail.emission; em.rateOverDistance = Mathf.Lerp(16, 70, comet) * trailScale; em.rateOverTime = Mathf.Lerp(6, 60, comet) * trailScale;
-            var m = trail.main; m.startLifetime = new ParticleSystem.MinMaxCurve(Mathf.Lerp(.7f, 1.6f, comet) * trailScale, Mathf.Lerp(1.3f, 3f, comet) * trailScale); m.gravityModifier = matte * .35f;
-            m.startSize = new ParticleSystem.MinMaxCurve(Mathf.Lerp(.14f, .5f, comet), Mathf.Lerp(.32f, 1.2f, comet));
+            float wake = Mathf.Lerp(1f, 2.25f, RideWake) * (1f + FragmentPower * .22f);
+            var em = trail.emission; em.rateOverDistance = Mathf.Lerp(16, 70, comet) * trailScale * wake; em.rateOverTime = Mathf.Lerp(6, 60, comet) * trailScale;
+            var m = trail.main; m.startLifetime = new ParticleSystem.MinMaxCurve(Mathf.Lerp(.7f, 1.6f, comet) * trailScale, Mathf.Lerp(1.3f, 3f, comet) * trailScale * Mathf.Lerp(1f, 1.25f, RideWake)); m.gravityModifier = matte * .35f;
+            m.startSize = new ParticleSystem.MinMaxCurve(Mathf.Lerp(.14f, .5f, comet) * particleScale, Mathf.Lerp(.32f, 1.2f, comet) * particleScale);
         }
     }
 }

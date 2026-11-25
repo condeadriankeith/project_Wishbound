@@ -31,6 +31,7 @@ Shader "Hidden/Island/TiltShift"
             #define SAMPLE_COUNT 80
 
             float _IslandTiltShiftEnabled;   // global, set by IslandCameraFX
+            float _WishMenuBlur;
             float _IslandTiltStrength;       // global 0..2, eased per camera mode by IslandCameraFX
             float _FocusY, _BandHalfHeight, _Falloff, _MaxBlurRadius, _Angle, _Saturation, _BokehBoost;
 
@@ -51,12 +52,12 @@ Shader "Hidden/Island/TiltShift"
                 float4 src = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, uv, 0);
                 float3 col = src.rgb;
 
-                if (_IslandTiltShiftEnabled > 0.5)
+                if (_IslandTiltShiftEnabled > 0.5 || _WishMenuBlur > .001)
                 {
                     float aspect = _ScreenParams.x / _ScreenParams.y;
                     float ang = radians(_Angle);
                     float2 n = float2(-sin(ang), cos(ang));
-                    float R = Coc(uv, aspect, n);
+                    float R = max(_IslandTiltShiftEnabled > .5 ? Coc(uv, aspect, n) : 0, 5.5 * _WishMenuBlur * _ScreenParams.y / 1080.0);
 
                     if (R > 0.35)
                     {

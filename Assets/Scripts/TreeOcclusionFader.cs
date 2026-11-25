@@ -67,7 +67,7 @@ void LateUpdate()
     {
         if (cam == null || player == null) return;
         // the opening sequence frames the world freely - no see-through holes cut into trees there
-        if (WishboundIntro.IsPlaying) { Shader.SetGlobalVector("_OccParams", Vector4.zero); Shader.SetGlobalVector("_OccDir", Vector4.zero); return; }
+        if (WishboundIntro.IsPlaying || CutsceneDirector.Active) { Shader.SetGlobalVector("_OccParams", Vector4.zero); Shader.SetGlobalVector("_OccDir", Vector4.zero); return; }
         if (trees != null) trees.ClearAllExcludedSlots();   // legacy ghost-pass exclusion is retired; trees always draw with their real materials
         Vector3 from = cam.transform.position;
         Vector3 dir = player.position - from;

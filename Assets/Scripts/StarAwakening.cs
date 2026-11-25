@@ -55,7 +55,7 @@ public class StarAwakening : MonoBehaviour
         Apply(Mathf.SmoothStep(0f, 1f, p));
 
         if (!firstMove && travelled > .4f) { firstMove = true; Flare(.9f); }
-        if (!firstJump && Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame) { firstJump = true; Flare(.7f); }
+        if (!firstJump && WishboundInput.Pressed(Key.Space, KeyCode.Space)) { firstJump = true; Flare(.7f); }
         if (!m1 && p > .33f) { m1 = true; Flare(.5f); }
         if (!m2 && p > .66f) { m2 = true; Flare(.6f); }
 

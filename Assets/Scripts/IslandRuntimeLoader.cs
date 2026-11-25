@@ -46,6 +46,7 @@ public class IslandRuntimeLoader : MonoBehaviour
             mf.sharedMesh = bakedIslandMesh;
             if (mc) mc.sharedMesh = bakedIslandMesh;
             var isr = ib.GetComponent<MeshRenderer>();
+            if (isr) IslandBuilder.SetProceduralGround(isr, false);
             if (isr != null && (isr.sharedMaterial == null || isr.sharedMaterial.shader == null || !isr.sharedMaterial.shader.isSupported))
             {
                 var tsh = Shader.Find("Ghibli/ToonLit"); if (tsh == null) tsh = Shader.Find("Universal Render Pipeline/Lit");

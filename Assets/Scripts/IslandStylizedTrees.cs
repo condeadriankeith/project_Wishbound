@@ -5,6 +5,7 @@ using static TerrainMath;
 
 // Ghibli-style forest: smooth bark trunks with branches that physically reach every leaf canopy,
 // puffy subdivided leaf clumps (no low-poly blobs), sparse scatter, high canopies so first-person view stays clear.
+[DefaultExecutionOrder(90)]
 public class IslandStylizedTrees : MonoBehaviour
 {
     public int seed = 4242;
@@ -24,6 +25,40 @@ public class IslandStylizedTrees : MonoBehaviour
     public GameObject TreeCollidersGO => cgo != null ? cgo : (cgo = GameObject.Find("TreeColliders"));
 
     public void ClearAllExcludedSlots() { }
+
+    internal void CollectCanopies(List<Bounds> canopies)
+    {
+        if (pkgBatches != null)
+        {
+            foreach (var batch in pkgBatches)
+            {
+                if (!batch.mesh || batch.Instances == null) continue;
+                foreach (var instance in batch.Instances) AddCanopy(canopies, batch.mesh.bounds, instance);
+            }
+            return;
+        }
+        if (vars == null) return;
+        for (int i = 0; i < Mathf.Min(3, vars.Length); i++)
+        {
+            var variant = vars[i];
+            if (!variant.mesh) continue;
+            foreach (var chunk in variant.chunks)
+                foreach (var instance in chunk) AddCanopy(canopies, variant.mesh.bounds, instance);
+        }
+    }
+
+    static void AddCanopy(List<Bounds> canopies, Bounds local, Matrix4x4 pose)
+    {
+        float height = local.size.y * Mathf.Abs(pose.m11);
+        if (height < 6f) return;
+
+        Vector3 center = pose.MultiplyPoint3x4(local.center);
+        // Use the upper portion for the canopy. Gameplay already has colliders for the trunk.
+        center.y += height * .14f;
+        float width = Mathf.Abs(pose.m00) * local.size.x + Mathf.Abs(pose.m02) * local.size.z;
+        float depth = Mathf.Abs(pose.m20) * local.size.x + Mathf.Abs(pose.m22) * local.size.z;
+        canopies.Add(new Bounds(center, new Vector3(width + 1f, height * .72f + .5f, depth + 1f)));
+    }
     List<GhibliBatch> pkgBatches;
 
     [Header("Distance LOD")]
@@ -41,11 +76,12 @@ public class IslandStylizedTrees : MonoBehaviour
         public List<Bounds> bnds = new List<Bounds>();
     }
     Variant[] vars;
+    public bool Ready => vars != null;
     readonly Plane[] planes = new Plane[6];
     Material trunkMat;
 
     [SerializeField, HideInInspector] bool started;   // serialized: survives a script reload during Play
-    void Start() { if (!Application.isPlaying || !FindFirstObjectByType<IslandRuntimeLoader>()?.useBakedData == true) { StartCoroutine(StartRoutine()); started = true; } }
+    void Start() { if (FindFirstObjectByType<IslandRuntimeLoader>()?.useBakedData != true && !started) { StartCoroutine(StartRoutine()); started = true; } }
     void OnEnable() { if (Application.isPlaying && started && vars == null) StartCoroutine(StartRoutine()); }
 
     IEnumerator StartRoutine()
@@ -58,6 +94,8 @@ public class IslandStylizedTrees : MonoBehaviour
             if (ib != null && ib.PathMap != null) { mf = ib.GetComponent<MeshFilter>(); if (mf != null && mf.sharedMesh != null && mf.sharedMesh.vertexCount > 0) break; }
             yield return null;
         }
+        var footprints = FindFirstObjectByType<VillageGrassClearer>();
+        while (footprints && footprints.isActiveAndEnabled && !footprints.HouseFootprintsReady) yield return null;
         natureSet = usePackageAssets ? GhibliNatureSet.Load() : null;
         if (natureSet != null && natureSet.trees.Count > 0 && natureSet.shrubs.Count > 0)
         {
@@ -94,11 +132,12 @@ public class IslandStylizedTrees : MonoBehaviour
         return m;
     }
 
-    bool Ok(double x, double z, Color[] cols, out float h)
+    bool Ok(double x, double z, Color[] cols, out float h, bool mountainTree = false)
     {
         h = Hm(x, z);   // rendered-mesh height: never floats above / sinks into smoothed relief
-        if (Surface.NearCrater(x, z)) return false;   // keep trees/bushes off the crater, lip and furrow
-        if (h < minHeight || h > maxHeight) return false;
+        if (Surface.RoadPathAt(x,z) > .25 || Surface.NearCrater(x, z)) return false;   // keep trees/bushes off the crater, lip and furrow
+        if (GrassExclusions.Contains(x, z, h)) return false;   // ...and out of courtyards, houses and the cottage
+        if (h < minHeight || h > (mountainTree ? Mathf.Max(maxHeight, 330f) : maxHeight)) return false;
         // Ask the shared Surface classifier what the ground IS (no more guessing from vertex colour):
         // trees only grow on living ground (Grass / Field), never on sand, dirt, paths, scree or cliff walls.
         // Use the RENDERED mesh normal (NVm), not the analytic NV: cliff smoothing can make the rendered
@@ -107,7 +146,8 @@ public class IslandStylizedTrees : MonoBehaviour
         double ny = NVm(x, z).y;
         if (ny < minSlopeY) return false;
         var st = Surface.Classify(x, z, h, ny, Surface.PathAt(x, z));
-        return st == SurfaceType.Grass || st == SurfaceType.Field;
+        return st == SurfaceType.Grass || st == SurfaceType.Field ||
+            (mountainTree && h > 45f && st == SurfaceType.Scree && Surface.PathAt(x,z) < .25);
     }
 
     float Forest(double x, double z, double e)
@@ -122,7 +162,7 @@ public class IslandStylizedTrees : MonoBehaviour
         var cols = mesh.colors;
         var rng = new System.Random(seed);
         double e = E;
-        float spacing = treeSpacing;
+        float spacing = treeSpacing * .85f;
         int G = Mathf.CeilToInt((float)(2 * e / spacing));
         var tp = new Vector2[G * G];
         var has = new bool[G * G];
@@ -137,9 +177,22 @@ public class IslandStylizedTrees : MonoBehaviour
             double z = -e + (gz + 0.15 + rng.NextDouble() * 0.7) * spacing;
             float r1 = (float)rng.NextDouble(), r2 = (float)rng.NextDouble(), r3 = (float)rng.NextDouble(), r4 = (float)rng.NextDouble();
             float h;
-            if (!Ok(x, z, cols, out h)) continue;
+            bool accepted = Ok(x,z,cols,out h,true);
+            // Narrow mountain shelves can fall between jittered samples. Search locally
+            // within the same cell so each shelf still has a single planting opportunity.
+            if (!accepted && h > 45f)
+            {
+                for (int j=0; j<4 && !accepted; j++)
+                {
+                    double sx = -e + (gx + (j%2==0 ? .24 : .76))*spacing;
+                    double sz = -e + (gz + (j<2 ? .24 : .76))*spacing;
+                    if (Ok(sx,sz,cols,out h,true)) { x=sx; z=sz; accepted=true; }
+                }
+            }
+            if (!accepted) continue;
             float dens = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(forestLow, forestHigh, Forest(x, z, e)));
-            if (r1 > dens * 0.55f + sparseChance) continue;
+            float chance = h > 45f ? .32f + .38f*dens : sparseChance + .44f*dens;
+            if (r1 > chance) continue;
 
             float tn = Mathf.PerlinNoise((float)(x + e) * 0.012f + 200f, (float)(z + e) * 0.012f);
             int vi = (tn > 0.62f || (h > 90f && r2 < 0.8f)) ? 2 : (r2 < 0.5f ? 0 : 1);
@@ -260,6 +313,8 @@ public class IslandStylizedTrees : MonoBehaviour
             b.Build(kv.Value, 80f, new Vector3(pc.MaxXZ * k, pc.maxY * k, pc.MaxXZ * k));
             pkgBatches.Add(b);
         }
+        var wildlife = gameObject.AddComponent<WoodlandWildlife>();
+        wildlife.Populate(vars[0].m);
         Debug.Log("[IslandStylizedTrees] Ghibli package mode: " + trees + " trees, " + bushes + " shrubs in " + pkgBatches.Count + " batches.");
     }
 
@@ -311,19 +366,38 @@ public class IslandStylizedTrees : MonoBehaviour
         Debug.Log($"[IslandStylizedTrees] Loaded baked tree data: {data.variants.Count} variants.");
     }
 
-    void Update()
+    /// <summary>Removes trees and bushes whose base falls inside the predicate (world space), e.g. a house interior.</summary>
+    public void ClearWhere(System.Func<Vector3, bool> inside)
+    {
+        if (pkgBatches == null) return;
+        foreach (var pb in pkgBatches) pb.RemoveWhere(inside);
+    }
+
+    void LateUpdate()
     {
         if (vars == null) return;
         var cam = Camera.main; if (cam == null) return;
         GeometryUtility.CalculateFrustumPlanes(cam, planes);
         Vector3 cp = cam.transform.position;
+        var phase = WishboundIntro.Instance ? WishboundIntro.Instance.SequencePhase : null;
+        float drawDistance = phase is "Village" or "Comet" or "Title" or "Impact"
+            ? Mathf.Max(1600f, maxRenderDistance) : maxRenderDistance;
         if (pkgBatches != null)
         {
-            foreach (var pb in pkgBatches) pb.Draw(cp, planes, maxRenderDistance, 1e9f, 100f);   // keep <100 m chunks so shadows never pop
+            if (CometBlast.Active)   // the comet's landing blast leans the trees in its path, then they spring back
+            {
+                bool settle = CometBlast.Done;
+                foreach (var pb in pkgBatches) pb.Pose(CometBlast.LeanAt, CometBlast.Origin, CometBlast.Reach + 8f, settle, CometBlast.FlutterAt);
+                if (settle) CometBlast.Active = false;
+            }
+            bool protectShot = CutsceneDirector.Active || WishboundIntro.IsPlaying;
+            float subjectDistance = CutsceneDirector.Active ? Vector3.Distance(cp,CutsceneDirector.Instance.Focus) :
+                phase == "Village" ? 110f : 22f;
+            foreach (var pb in pkgBatches) pb.Draw(cp, planes, drawDistance, 1e9f, 100f, cam, protectShot ? subjectDistance : 0f);   // keep <100 m chunks so shadows never pop
             return;
         }
-        float maxDist2 = maxRenderDistance * maxRenderDistance;
-        float fadeStart2 = (maxRenderDistance - fadeDistance) * (maxRenderDistance - fadeDistance);
+        float maxDist2 = drawDistance * drawDistance;
+        float fadeStart2 = (drawDistance - fadeDistance) * (drawDistance - fadeDistance);
         foreach (var v in vars)
             for (int i = 0; i < v.chunks.Count; i++)
             {
@@ -334,7 +408,7 @@ public class IslandStylizedTrees : MonoBehaviour
                 if (fadeDistance > 0f && dist2 > fadeStart2)
                 {
                     float dist = Mathf.Sqrt(dist2);
-                    fade = 1f - Mathf.Clamp01((dist - (maxRenderDistance - fadeDistance)) / fadeDistance);
+                    fade = 1f - Mathf.Clamp01((dist - (drawDistance - fadeDistance)) / fadeDistance);
                     if (fade <= 0f) continue;
                 }
 

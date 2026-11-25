@@ -14,11 +14,39 @@ public static class SettlerWardrobe
         get
         {
             if (sphere) return sphere;
-            sphere = Object.Instantiate(VillageKit.Blob(0, 0, 10, 20));
-            sphere.name = "Settler closed rounded mesh";
-            var t = sphere.triangles;
-            for (int i = 0; i < t.Length; i += 3) { int a = t[i]; t[i] = t[i + 2]; t[i + 2] = a; }
-            sphere.triangles = t; sphere.RecalculateNormals(); return sphere;
+            const int segments = 20, bands = 10;
+            var vertices = new List<Vector3> { Vector3.up };
+            var triangles = new List<int>();
+            for (int row = 1; row < bands; row++)
+            {
+                float polar = Mathf.PI * row / bands;
+                for (int i = 0; i < segments; i++)
+                {
+                    float azimuth = i * (2 * Mathf.PI / segments);
+                    vertices.Add(new Vector3(Mathf.Sin(polar) * Mathf.Cos(azimuth), Mathf.Cos(polar),
+                        Mathf.Sin(polar) * Mathf.Sin(azimuth)));
+                }
+            }
+            int bottom = vertices.Count;
+            vertices.Add(Vector3.down);
+            for (int i = 0; i < segments; i++)
+            {
+                int next = (i + 1) % segments;
+                triangles.AddRange(new[] { 0, 1 + next, 1 + i });
+                for (int row = 0; row < bands - 2; row++)
+                {
+                    int a = 1 + row * segments;
+                    int b = a + segments;
+                    triangles.AddRange(new[] { a + i, a + next, b + i, a + next, b + next, b + i });
+                }
+                triangles.AddRange(new[] { bottom, bottom - segments + i, bottom - segments + next });
+            }
+            sphere = new Mesh { name = "Settler closed rounded mesh" };
+            sphere.SetVertices(vertices);
+            sphere.SetTriangles(triangles, 0);
+            sphere.SetNormals(vertices);
+            sphere.RecalculateBounds();
+            return sphere;
         }
     }
     // Closed tapered cylinder, including both end caps. y=0..1.
@@ -54,7 +82,7 @@ public static class SettlerWardrobe
         // Chunky proportions: bigger head & torso, shorter limbs than before.
         float w = (kid ? .24f : .29f) * o.build, shoulder = w * .85f + .05f;
         Color leather = new Color(.25f, .16f, .12f), brass = new Color(.77f, .59f, .29f), cream = new Color(.91f, .84f, .67f);
-        var hips = Joint("hips", av, new Vector3(0, .55f, 0));
+        var hips = Joint("hips", av, new Vector3(0, .64f, 0));
         var spine = Joint("spine", hips, new Vector3(0, .18f, 0));
         var head = Joint("head", spine, new Vector3(0, .40f, 0));
         Color coat = o.apron ? o.shirt : o.jacket;
@@ -70,14 +98,17 @@ public static class SettlerWardrobe
         {
             Ball("Ear", head, o.skin, new Vector3(side * (hx - .005f), .04f, 0), new Vector3(.06f, .09f, .06f));
             Ball("Eye", head, new Color(.12f, .09f, .075f), new Vector3(side * .105f, .075f, .27f), new Vector3(.02f, .03f, .014f));
+            Ball("Eye catchlight", head, cream, new Vector3(side * .105f - .005f, .084f, .283f), new Vector3(.007f, .008f, .004f));
+            Ball("Cheek", head, Color.Lerp(o.skin, new Color(.77f, .29f, .24f), kid ? .30f : .20f),
+                new Vector3(side * .155f, .002f, .230f), new Vector3(.049f, .025f, .021f));
             Bar("Brow", head, o.hair, new Vector3(side * .07f, .13f, .26f), new Vector3(side * .13f, .14f, .255f), .014f);
             var arm = Joint(side < 0 ? "arm.L" : "arm.R", spine, new Vector3(side * shoulder, .16f, 0));
-            Bar("Sleeve", arm, coat, Vector3.zero, new Vector3(side * .26f, 0, 0), .095f);
+            Bar("Sleeve", arm, coat, Vector3.zero, new Vector3(side * .235f, 0, 0), .095f);
             Ball("Shoulder seam", arm, coat, Vector3.zero, new Vector3(.095f, .1f, .1f));
             var elbow = Joint(side < 0 ? "elbow.L" : "elbow.R", arm, new Vector3(side * .26f, 0, 0));
             Ball("Elbow", elbow, o.skin, Vector3.zero, Vector3.one * .068f);
             Bar("Forearm", elbow, o.skin, Vector3.zero, new Vector3(side * .22f, 0, 0), .065f);
-            Bar("Rolled cuff", arm, cream, new Vector3(side * .22f, 0, 0), new Vector3(side * .27f, 0, 0), .095f);
+            Bar("Rolled cuff", arm, cream, new Vector3(side * .22f, 0, 0), new Vector3(side * .27f, 0, 0), .101f);
             var hand = Joint(side < 0 ? "hand.L" : "hand.R", elbow, new Vector3(side * .25f, 0, 0));
             Ball("Mitten", hand, o.skin, Vector3.zero, new Vector3(.085f, .075f, .07f));
             var leg = Joint(side < 0 ? "leg.L" : "leg.R", hips, new Vector3(side * .12f, -.02f, 0));
@@ -109,6 +140,8 @@ public static class SettlerWardrobe
             Ball("Straw crown", head, o.hatColor, new Vector3(0, .37f, -.01f), new Vector3(.33f, .19f, .29f));
             Part("Hat ribbon", head, Tube, o.jacket, new Vector3(0, .345f, 0), new Vector3(.32f, .05f, .27f));
             Box("Ribbon knot", head, o.jacket, new Vector3(.32f, .37f, 0), new Vector3(.06f, .07f, .09f));
+            Part("Braided brim edge", head, Tube, Color.Lerp(o.hatColor, leather, .3f),
+                new Vector3(0, .342f, 0), new Vector3(.528f, .013f, .448f));
         }
         else if (o.cap)
         {
@@ -161,6 +194,23 @@ public static class SettlerWardrobe
                 for (int i = 0; i < 8; i++) { float a = i * Mathf.PI / 4, b = (i + 1) * Mathf.PI / 4; Bar("Spectacle frame", head, brass, new Vector3(side * .10f + Mathf.Cos(a) * .07f, .075f + Mathf.Sin(a) * .065f, .29f), new Vector3(side * .10f + Mathf.Cos(b) * .07f, .075f + Mathf.Sin(b) * .065f, .29f), .007f); }
             }
             Bar("Glasses bridge", head, brass, new Vector3(-.03f, .08f, .29f), new Vector3(.03f, .08f, .29f), .008f);
+        }
+        if (o.role == SettlerBrain.Role.Gardener)
+        {
+            Box("Seed pocket label", spine, cream, new Vector3(.10f, -.125f, .243f), new Vector3(.083f, .041f, .009f));
+            var sprig = Ball("Pocket sprig", spine, new Color(.42f, .61f, .25f),
+                new Vector3(.12f, -.033f, .225f), new Vector3(.019f, .082f, .013f));
+            sprig.localRotation = Quaternion.Euler(0, 0, -24);
+        }
+        else if (o.role == SettlerBrain.Role.Fisher)
+        {
+            Ball("Cap enamel pin", head, cream, new Vector3(.15f, .30f, .248f), new Vector3(.028f, .028f, .012f));
+        }
+        else if (kid)
+        {
+            var patch = Box("Mended coat patch", spine, Color.Lerp(o.jacket, cream, .48f),
+                new Vector3(.15f, .11f, .183f), new Vector3(.076f, .071f, .019f));
+            patch.localRotation = Quaternion.Euler(0, 15, -12);
         }
         return av;
     }

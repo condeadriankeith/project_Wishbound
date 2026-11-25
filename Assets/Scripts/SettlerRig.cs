@@ -104,7 +104,10 @@ public class SettlerRig : MonoBehaviour
 
         // ---- walk cycle layered on top (stronger with speed, bouncier with energy)
         float w = Mathf.Clamp01(speed / 1.2f) * (pose == Pose.Idle || pose == Pose.Carry || pose == Pose.PullCart || pose == Pose.Talk || pose == Pose.Cower ? 1 : .25f);
+        int previousStep = Mathf.FloorToInt(phase / Mathf.PI);
         phase += dt * Mathf.Lerp(5f, 11f, Mathf.Clamp01(speed / 4f)) * (w > .01f ? 1 : 0);
+        if (Application.isPlaying && speed > .25f && previousStep != Mathf.FloorToInt(phase / Mathf.PI))
+            WorldSound.Cue(transform, "Step", 14f);
         float stride = Mathf.Lerp(18, 28, Mathf.Clamp01(speed / 4f)) * w;
         float swingL = cur.lL + Mathf.Sin(phase) * stride, swingR = cur.lR - Mathf.Sin(phase) * stride;
         float armSwing = Mathf.Sin(phase - .35f) * stride * .8f * (pose == Pose.Carry || pose == Pose.PullCart ? .08f : 1);

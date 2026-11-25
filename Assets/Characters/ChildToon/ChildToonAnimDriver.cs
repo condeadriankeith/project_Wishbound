@@ -9,6 +9,7 @@ public class ChildToonAnimDriver : MonoBehaviour
     public float walkSpeedReference = 4f;
     public float damp = 0.08f;
     Animator anim; Vector3 previousPosition;
+    ChildPerformer performer;
     void OnEnable() { previousPosition = source ? source.transform.position : transform.position; }
     static readonly int SpeedHash = Animator.StringToHash("Speed");
 
@@ -27,7 +28,8 @@ public class ChildToonAnimDriver : MonoBehaviour
         var now = source.transform.position;
         var delta = now - previousPosition; previousPosition = now; delta.y = 0f;
         float raw = Time.deltaTime > 0f && delta.sqrMagnitude < 4f ? delta.magnitude / Time.deltaTime : 0f;
-        float s = raw < stillSpeedThreshold ? 0f : raw;
+        if (!performer) performer = source.GetComponent<ChildPerformer>();
+        float s = raw < stillSpeedThreshold || (performer && performer.Seated) ? 0f : raw;
         anim.SetFloat(SpeedHash, s, damp, Time.deltaTime);
         anim.speed = s > 0.1f ? Mathf.Clamp(s / walkSpeedReference, 0.6f, 2f) : 1f;
     }

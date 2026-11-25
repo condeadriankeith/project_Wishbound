@@ -99,7 +99,16 @@ enum State { Waiting, Hiding, Met }
                 // placing the child from ground height while the collider is still mid-impact (visual mesh already
                 // sunk, collider not yet rebuilt) is what caused the child to float, then violently correct
                 // upward or sink through the floor once the real collider caught up.
-                if (!WishboundIntro.IsPlaying && (crater == null || crater.ColliderSettled)) PlaceBehindTree();
+                if (!WishboundIntro.IsPlaying && (crater == null || crater.ColliderSettled))
+                {
+                    if (StoryFlags.Get("ChildTookHand") || StoryFlags.Get("CottageChoiceMade"))
+                    {
+                        child.gameObject.SetActive(true);
+                        Warp(Ground(star.position-star.forward*1.8f),star.rotation);
+                        TakeHand();
+                    }
+                    else PlaceBehindTree();
+                }
                 break;
             case State.Hiding: UpdateHiding(); break;
         }
@@ -165,7 +174,7 @@ enum State { Waiting, Hiding, Met }
 
 void UpdateHiding()
     {
-        if (CutsceneControl) return;
+        if (CutsceneControl || CutsceneDirector.Active || PauseMenu.IsOpen) return;
         float d = Vector3.Distance(Flat(star.position), Flat(child.transform.position));
         // shy peeking: a little lean-out every few seconds; leaning out further (and staying out) as the star nears
         float curious = Mathf.InverseLerp(noticeRadius, promptRadius, d);
@@ -186,7 +195,7 @@ void UpdateHiding()
 
         // no HUD prompt any more: getting close starts the conversation (ChildConversation)
         promptAlpha = 0;
-        bool close = d < talkRadius;
+        bool close = StarInput.InReach(star.position, child.transform.position, talkRadius, 2.5f);
         if (close && !talking && Time.time >= nextConversationTime) { talking = true; ChildConversation.Run(this, star); }
     }
 

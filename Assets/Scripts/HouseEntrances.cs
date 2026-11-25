@@ -33,6 +33,7 @@ public class HouseEntrances : MonoBehaviour
     Transform star; Text prompt; CanvasGroup promptGroup; Image fade;
     bool busy, inside; Door current; Vector3 returnPoint; float returnYaw;
     public bool Inside => inside;
+    internal bool BlocksOutdoorInteraction => inside || busy;
 
     void Awake() { Instance = this; }
 
@@ -47,7 +48,10 @@ public class HouseEntrances : MonoBehaviour
         promptGroup = prompt.GetComponent<CanvasGroup>();
         var fg = new GameObject("DoorFade", typeof(RectTransform)); fg.transform.SetParent(WishboundUI.Canvas.transform, false);
         var r = (RectTransform)fg.transform; r.anchorMin = Vector2.zero; r.anchorMax = Vector2.one; r.offsetMin = r.offsetMax = Vector2.zero;
-        fade = fg.AddComponent<Image>(); fade.color = Color.clear; fade.raycastTarget = false;
+        fade = fg.AddComponent<Image>();
+        var shader = Resources.Load<Shader>("HouseIris");
+        if (shader) fade.material = iris = new Material(shader);
+         SetClosure(0); fade.raycastTarget = false;
     }
 
     void FindDoors()
@@ -100,38 +104,74 @@ public class HouseEntrances : MonoBehaviour
         return best;
     }
 
-    void Update()
+    Door DoorInReach(Vector3 position)
     {
-        if (!star || busy || CutsceneDirector.Active || WishboundIntro.IsPlaying) { if (promptGroup) promptGroup.alpha = Mathf.MoveTowards(promptGroup.alpha, 0, Time.deltaTime * 3); return; }
-        bool show = false;
-        if (!inside)
+        Door best = null;
+        float closest = float.PositiveInfinity;
+        foreach (var door in doors)
         {
-            var d = NearestDoor(star.position);
-            if (d != null && Vector3.Distance(Flat(d.point), Flat(star.position)) < doorRadius && Mathf.Abs(d.point.y - star.position.y) < 2.5f)
-            {
-                show = true; prompt.text = "E  -  " + promptText;
-                if (StarInput.ReachPressed) StartCoroutine(Enter(d));
-            }
+            if (!door.house || !door.house.gameObject.activeInHierarchy ||
+                !StarInput.InReach(position, door.point, doorRadius, 1.8f) ||
+                Vector3.Dot(position - door.point, door.outward) < -.6f) continue;
+            float distance = (position - door.point).sqrMagnitude;
+            if (distance >= closest) continue;
+            closest = distance;
+            best = door;
         }
-        else if (InteriorScene.Active && InteriorScene.Active.NearExit(star.position))
-        {
-            show = true; prompt.text = "E  -  leave";
-            if (StarInput.ReachPressed) StartCoroutine(Exit());
-        }
-        promptGroup.alpha = Mathf.MoveTowards(promptGroup.alpha, show ? 1 : 0, Time.deltaTime * 3);
+        return best;
     }
 
+    void Update()
+    {
+        if (!promptGroup) return;
+        bool show = false;
+        if (star && !busy && !CutsceneDirector.Active && !WishboundIntro.IsPlaying &&
+            !PauseMenu.IsOpen && Time.timeScale > 0f)
+        {
+            if (inside && InteriorScene.Active && InteriorScene.Active.NearExit(star.position))
+            {
+                show = true;
+                prompt.text = "E  -  leave";
+                if (StarInput.ReachPressed) StartCoroutine(Exit());
+            }
+            else if (!inside && (!MountainJourney.Instance || !MountainJourney.Instance.ClaimsReach))
+            {
+                var door = DoorInReach(star.position);
+                if (door != null)
+                {
+                    show = true;
+                    prompt.text = "E  -  " + promptText;
+                    if (StarInput.ReachPressed) StartCoroutine(Enter(door));
+                }
+            }
+        }
+        promptGroup.alpha = show && !busy ? 1f : 0f;
+    }
+
+    Material iris;
+    float closure;
+    void OnDestroy() { if (iris) Destroy(iris); if (fade) Destroy(fade.gameObject); if (prompt) Destroy(prompt.gameObject); }
+    void SetClosure(float value)
+    {
+        closure=value;
+        fade.enabled=value>0;
+        if (!iris) { fade.color=new Color(0,0,0,value); return; }
+        fade.color=Color.white;
+        iris.SetFloat("_Closure",value);
+        iris.SetFloat("_Aspect",(float)Screen.width/Mathf.Max(1,Screen.height));
+    }
     IEnumerator FadeTo(float a, float d)
     {
-        float s = fade.color.a;
-        for (float t = 0; t < d; t += Time.unscaledDeltaTime) { fade.color = new Color(0, 0, 0, Mathf.Lerp(s, a, t / d)); yield return null; }
-        fade.color = new Color(0, 0, 0, a);
+        float s = closure;
+        for (float t = 0; t < d; t += Time.unscaledDeltaTime) { SetClosure(Mathf.SmoothStep(s,a,t/d)); yield return null; }
+        SetClosure(a);
     }
 
     public IEnumerator Enter(Door d)
     {
         if (busy || inside || d == null || !star) yield break;
         busy = true; current = d;
+        WorldSound.Cue(star, "Door", 18f);
         returnPoint = d.point + d.outward * 1.2f; returnYaw = Quaternion.LookRotation(d.outward).eulerAngles.y;
         yield return FadeTo(1, .6f);
         if (!Application.CanStreamedLevelBeLoaded(d.type.interiorScene)) { Debug.LogWarning("[HouseEntrances] interior scene not in Build Settings: " + d.type.interiorScene); yield return FadeTo(0, .4f); busy = false; yield break; }
@@ -153,6 +193,7 @@ public class HouseEntrances : MonoBehaviour
     public IEnumerator Exit()
     {
         if (busy || !inside) yield break;
+        WorldSound.Cue(star, "Close", 18f);
         busy = true;
         yield return FadeTo(1, .6f);
         var interior = InteriorScene.Active;

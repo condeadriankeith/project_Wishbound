@@ -6,29 +6,32 @@ using UnityEngine.InputSystem;
 using UnityEngine.UI;
 using UnityEngine.Rendering.Universal;
 
-/// <summary>Staged title, magnetic wisp selection, settings and a directed farewell.</summary>
+/// <summary>Staged title, magnetic wisp selection (WispMagnet), settings and a directed farewell.</summary>
 public sealed class WishboundTitleMenu : MonoBehaviour
 {
-    sealed class Choice
+    sealed class Choice : WispWord
     {
-        public Text text; public CanvasGroup group; public RectTransform rect;
-        public Shadow[] glow; public Action action; public float heat;
+        public CanvasGroup group; public Action action;
     }
     readonly List<Choice> main = new List<Choice>(), settings = new List<Choice>();
     RectTransform root, logo; CanvasGroup logoGroup, settingsGroup;
+    WishProgressPage progressPage;
+    int pageClosedFrame=-1;
     Image fade, shade; IslandThirdPersonController player;
     Font font;
-    Vector2 cursor, rawPointer, previousPointer; int selected = -1;
-    bool ready, busy, settingsOpen, pointerInitialized, keyboardSelection;
-    float menuAge; bool claimed;
-    void Unclaim() { WispCursor.ScreenOverride = null; if (claimed) { claimed = false; WispCursor.Claims--; } }
+    Vector2 rawPointer, previousPointer;
+    readonly WispMagnet magnet = new WispMagnet();
+    bool ready, busy, settingsOpen, keyboardSelection;
+    float menuAge;
     public bool PlayRequested { get; private set; }
     public bool Ready => ready;
     public bool SettingsOpen => settingsOpen;
-    public string FocusedOption => selected >= 0 && selected < Choices.Count ? Choices[selected].text.text : "";
+    public string FocusedOption => magnet.Selected >= 0 && magnet.Selected < Choices.Count ? Choices[magnet.Selected].text.text : "";
     List<Choice> Choices => settingsOpen ? settings : main;
 
     static float Ease(float t) { t=Mathf.Clamp01(t); return t*t*t*(t*(t*6-15)+10); }
+    static int Step(int from,int dir,int count) { if(from<0) return dir>0 ? 0 : count-1; return (from+dir+count)%count; }
+
     public void Configure(RectTransform title, CanvasGroup titleAlpha, Image black, IslandThirdPersonController controller)
     {
         root = (RectTransform)transform; logo = title; logoGroup = titleAlpha; fade = black; player = controller;
@@ -48,7 +51,8 @@ public sealed class WishboundTitleMenu : MonoBehaviour
         settings.Add(MakeChoice("",new Vector2(0,65),new Vector2(600,66),()=>ChangeVolume(.1f),panel.transform));
         settings.Add(MakeChoice("",new Vector2(0,-20),new Vector2(600,66),()=>ChangeSensitivity(.02f),panel.transform));
         settings.Add(MakeChoice("",new Vector2(0,-105),new Vector2(600,66),()=>{WishboundSettings.SetFullscreen(!Screen.fullScreen); RefreshSettings();},panel.transform));
-        settings.Add(MakeChoice("BACK",new Vector2(0,-225),new Vector2(420,70),CloseSettings,panel.transform));
+        settings.Add(MakeChoice("SAVED PROGRESS",new Vector2(0,-175),new Vector2(640,66),OpenProgress,panel.transform));
+        settings.Add(MakeChoice("BACK",new Vector2(0,-250),new Vector2(420,70),CloseSettings,panel.transform));
         var help=MakeChoice("LEFT / RIGHT TO ADJUST   -   ESC TO RETURN",new Vector2(0,-315),new Vector2(900,45),null,panel.transform); help.text.fontSize=20; help.group.alpha=.65f;
         foreach(var c in settings) c.group.alpha=1;
         settingsGroup.gameObject.SetActive(false); RefreshSettings();
@@ -60,9 +64,8 @@ public sealed class WishboundTitleMenu : MonoBehaviour
         var go=new GameObject(caption.Length>0?caption:"Setting",typeof(RectTransform),typeof(CanvasGroup),typeof(Text)); go.transform.SetParent(parent,false);
         var r=(RectTransform)go.transform; r.anchorMin=r.anchorMax=r.pivot=new Vector2(.5f,.5f); r.anchoredPosition=pos; r.sizeDelta=size;
         var t=go.GetComponent<Text>(); t.text=caption; t.font=font; t.fontSize=48; t.alignment=TextAnchor.MiddleCenter; t.color=Color.white; t.raycastTarget=false;
-        var shadows=new Shadow[4]; Vector2[] offsets={new Vector2(2,0),new Vector2(-2,0),new Vector2(0,2),new Vector2(0,-2)};
-        for(int i=0;i<4;i++){ shadows[i]=go.AddComponent<Shadow>(); shadows[i].effectDistance=offsets[i]; shadows[i].effectColor=Color.clear; }
-        var c=new Choice {text=t,rect=r,group=go.GetComponent<CanvasGroup>(),action=action,glow=shadows}; c.group.alpha=0; c.group.blocksRaycasts=false;
+        var c=new Choice {text=t,rect=r,group=go.GetComponent<CanvasGroup>(),action=action,glow=WispMagnet.AddGlow(go)};
+        c.group.alpha=0; c.group.blocksRaycasts=false;
         return c;
     }
     Image ImageAt(string name,Transform parent,Vector2 pos,Vector2 size,Color color)
@@ -75,7 +78,9 @@ public sealed class WishboundTitleMenu : MonoBehaviour
 
     public IEnumerator Present()
     {
-        Cursor.lockState=CursorLockMode.None;Cursor.visible=false;
+        WispCursor.TitleOwner = this;
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
         for(float t=0;t<1.5f;t+=Time.unscaledDeltaTime){logoGroup.alpha=Ease(t/1.5f);shade.color=new Color(.005f,.012f,.035f,.22f*Ease(t/1.5f));yield return null;}
         logoGroup.alpha=1;
         yield return new WaitForSecondsRealtime(2);
@@ -88,58 +93,83 @@ public sealed class WishboundTitleMenu : MonoBehaviour
         foreach(var c in main)c.group.alpha=1;
         ready=true;
     }
+
     void Update()
     {
-        if(!ready || busy)return;
-        menuAge+=Time.unscaledDeltaTime;
-        Cursor.lockState=CursorLockMode.None;Cursor.visible=false;
-        var mouse=Mouse.current;
-        Vector2 screen=mouse!=null?mouse.position.ReadValue():new Vector2(Screen.width*.5f,Screen.height*.5f);
+        if (WispCursor.TitleOwner != this || progressPage || pageClosedFrame==Time.frameCount) return;
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = !WispCursor.IsShowing;
+
+
+        Vector2 screen = WishboundInput.Pointer;
+        bool clicked = WishboundInput.PrimaryPressed;
+        if (!ready)
+        {
+            WispCursor.ScreenOverride = screen;
+            return;
+        }
         RectTransformUtility.ScreenPointToLocalPointInRectangle(root,screen,null,out rawPointer);
-        if(!pointerInitialized){cursor=rawPointer;previousPointer=rawPointer;pointerInitialized=true;}
-        if((rawPointer-previousPointer).sqrMagnitude>2){keyboardSelection=false;}previousPointer=rawPointer;
-        var list=Choices;
-        if(!keyboardSelection)
+        if(!busy)
         {
-            int candidate=-1;float nearest=76;
-            for(int i=0;i<list.Count;i++)
-            {
-                Vector2 centre=root.InverseTransformPoint(list[i].rect.position);
-                float halfWidth=Mathf.Min(list[i].rect.rect.width*.5f,list[i].text.preferredWidth*.5f+20);
-                Vector2 d=rawPointer-centre;d.x=Mathf.Max(0,Mathf.Abs(d.x)-halfWidth);d.y=Mathf.Max(0,Mathf.Abs(d.y)-25);
-                float distance=d.magnitude;
-                if(distance<nearest){nearest=distance;candidate=i;}
-            }
-            selected=candidate;
+            menuAge+=Time.unscaledDeltaTime;
+            if((rawPointer-previousPointer).sqrMagnitude>2) keyboardSelection=false;   // the mouse takes over once it moves
+            KeyboardNavigation();
+            if (clicked) keyboardSelection = false;
         }
-        var kb=Keyboard.current;
-        if(kb!=null)
-        {
-            if(kb.downArrowKey.wasPressedThisFrame || kb.tabKey.wasPressedThisFrame){selected=(selected+1)%list.Count;keyboardSelection=true;}
-            if(kb.upArrowKey.wasPressedThisFrame){selected=(selected+list.Count-1)%list.Count;keyboardSelection=true;}
-            if(settingsOpen && kb.escapeKey.wasPressedThisFrame){CloseSettings();return;}
-            if(settingsOpen && selected>=0 && (kb.leftArrowKey.wasPressedThisFrame || kb.rightArrowKey.wasPressedThisFrame))
-            {float sign=kb.leftArrowKey.wasPressedThisFrame?-1:1;if(selected==0)ChangeVolume(sign*.1f);else if(selected==1)ChangeSensitivity(sign*.02f);else if(selected==2)list[selected].action();}
-        }
-        Vector2 target=rawPointer;
-        if(selected>=0) target=(Vector2)root.InverseTransformPoint(list[selected].rect.position)+new Vector2(-Mathf.Min(170,list[selected].text.preferredWidth*.5f+24),0);
-        cursor=Vector2.Lerp(cursor,target,1-Mathf.Exp(-18*Time.unscaledDeltaTime));
-        WispCursor.ScreenOverride=RectTransformUtility.WorldToScreenPoint(null,root.TransformPoint(cursor));
-        if(selected>=0 && ((mouse!=null && mouse.leftButton.wasPressedThisFrame)||(kb!=null && kb.enterKey.wasPressedThisFrame)))list[selected].action();
+        previousPointer=rawPointer;
+
+        // the wisp always follows the magnet (also while a transition plays, holding whichever word it had grabbed)
+        magnet.Track(root,Choices,rawPointer,Time.unscaledDeltaTime,keyboardSelection||busy);
+        WispCursor.ScreenOverride=magnet.ScreenPoint(root);
+        if(busy) return;
+
+        int sel=magnet.Selected;
+        if(sel>=0 && (clicked||(WishboundInput.Pressed(Key.Enter, KeyCode.Return)))){ WorldSound.Menu("Select"); Choices[sel].action(); }
     }
 
-    public void SelectPlay(){if(!ready || busy || settingsOpen)return;busy=true;PlayRequested=true;}
+    void OpenProgress()
+    {
+        settingsGroup.gameObject.SetActive(false);
+        progressPage=WishProgressPage.Open(root,font,changed=>{
+            progressPage=null;pageClosedFrame=Time.frameCount;
+            settingsGroup.gameObject.SetActive(true);ClearFocus();
+            if(changed)CloseSettings();
+        });
+    }
+
+    void KeyboardNavigation()
+    {
+        var list=Choices;
+        if(WishboundInput.Pressed(Key.DownArrow, KeyCode.DownArrow) || WishboundInput.Pressed(Key.Tab, KeyCode.Tab)){magnet.Selected=Step(magnet.Selected,1,list.Count);keyboardSelection=true;}
+        if(WishboundInput.Pressed(Key.UpArrow, KeyCode.UpArrow)){magnet.Selected=Step(magnet.Selected,-1,list.Count);keyboardSelection=true;}
+        if(!settingsOpen) return;
+        if(WishboundInput.Pressed(Key.Escape, KeyCode.Escape)){CloseSettings();return;}
+        if(magnet.Selected>=0 && (WishboundInput.Pressed(Key.LeftArrow, KeyCode.LeftArrow) || WishboundInput.Pressed(Key.RightArrow, KeyCode.RightArrow)))
+        {
+            float sign=WishboundInput.Pressed(Key.LeftArrow, KeyCode.LeftArrow)?-1:1;
+            if(magnet.Selected==0)ChangeVolume(sign*.1f);
+            else if(magnet.Selected==1)ChangeSensitivity(sign*.02f);
+            else if(magnet.Selected==2)list[magnet.Selected].action();
+        }
+    }
+
+    void ClearFocus(){ magnet.Reset(); foreach(var c in main)c.heat=0; foreach(var c in settings)c.heat=0; }
+
+    public void SelectPlay(){if(!ready || busy || settingsOpen)return;StoryFlags.LoadActive();busy=true;PlayRequested=true;}
     public void OpenSettings(){ if(!ready||busy||settingsOpen)return; StartCoroutine(Morph(true)); }
     public void CloseSettings(){ if(!ready||busy||!settingsOpen)return; StartCoroutine(Morph(false)); }
     IEnumerator Morph(bool open)
     {
-        busy=true; selected=-1;
+        busy=true; ClearFocus();
         var panel=(RectTransform)settingsGroup.transform;
         if(open){ RefreshSettings(); settingsGroup.alpha=0; settingsGroup.gameObject.SetActive(true); }
         const float D=.6f;
         for(float t=0;t<D;t+=Time.unscaledDeltaTime)
         {
             float k=Ease(t/D);
+            float veil=open?k:1f-k;
+            Shader.SetGlobalFloat("_WishMenuBlur",veil);
+            shade.color=new Color(.012f,.019f,.042f,Mathf.Lerp(.22f,.59f,veil));
             float outA=1-Ease(t/(D*.5f)), inA=Ease((t-D*.35f)/(D*.65f));
             float mainA=open?outA:inA, setA=open?inA:outA;
             float mainS=open?Mathf.Lerp(1f,.9f,k):Mathf.Lerp(.9f,1f,k);
@@ -149,15 +179,16 @@ public sealed class WishboundTitleMenu : MonoBehaviour
             settingsGroup.alpha=setA; panel.localScale=Vector3.one*setS; panel.anchoredPosition=new Vector2(0,open?-28*(1-k):-28*k);
             yield return null;
         }
-        settingsOpen=open;
+        settingsOpen=open; Shader.SetGlobalFloat("_WishMenuBlur",open?1f:0f);
+        shade.color=new Color(.012f,.019f,.042f,open?.59f:.22f);
         logoGroup.alpha=open?0:1; logo.localScale=Vector3.one;
         foreach(var c in main){c.group.alpha=open?0:1;c.rect.localScale=Vector3.one;}
         settingsGroup.alpha=open?1:0; panel.localScale=Vector3.one; panel.anchoredPosition=Vector2.zero;
         if(!open)settingsGroup.gameObject.SetActive(false);
-        selected=-1; busy=false;
+        ClearFocus(); busy=false;
     }
-    public void ChangeVolume(float delta){WishboundSettings.SetVolume(WishboundSettings.Volume+delta);RefreshSettings();}
-    public void ChangeSensitivity(float delta){WishboundSettings.SetSensitivity(WishboundSettings.Sensitivity+delta,player);RefreshSettings();}
+    public void ChangeVolume(float delta){WorldSound.Menu("Adjust"); WishboundSettings.SetVolume(WishboundSettings.Volume+delta);RefreshSettings();}
+    public void ChangeSensitivity(float delta){WorldSound.Menu("Adjust"); WishboundSettings.SetSensitivity(WishboundSettings.Sensitivity+delta,player);RefreshSettings();}
     void RefreshSettings()
     {
         if(settings.Count<3)return;
@@ -175,16 +206,25 @@ public sealed class WishboundTitleMenu : MonoBehaviour
     {
         if(!ready||busy||settingsOpen)return;
         busy=true;
-        // hand the wisp over, at its current spot beside QUIT, to the shared farewell sequence (input is dead from here on)
-        Vector2 screen=RectTransformUtility.WorldToScreenPoint(null,root.TransformPoint(cursor));
+        // hand the wisp over, at its current spot on QUIT, to the shared farewell sequence (input is dead from here on)
+        Vector2 screen=magnet.ScreenPoint(root);
         ReleaseCursor();
         Cursor.lockState=CursorLockMode.None;Cursor.visible=false;
         WishboundFarewell.Play(screen);
     }
-    public void ReleaseCursor(){Unclaim();ready=false;}
-    void OnDestroy()
+    public void ReleaseCursor()
     {
-        Unclaim();
-        if(!PlayRequested){Cursor.lockState=CursorLockMode.None;Cursor.visible=true;}
+        ready = false;
+        if (WispCursor.TitleOwner != this) return;
+        WispCursor.TitleOwner = null;
+        WispCursor.ScreenOverride = null;
+    }
+
+    void OnDisable()
+    {
+        Shader.SetGlobalFloat("_WishMenuBlur",0);
+        if (WispCursor.TitleOwner != this) return;
+        ReleaseCursor();
+        if (!PlayRequested) { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
     }
 }

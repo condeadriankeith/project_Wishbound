@@ -72,12 +72,16 @@ public class GuideWisp : MonoBehaviour
 
         var sg = new GameObject("Sparks"); sg.transform.SetParent(wisp, false);
         sparks = sg.AddComponent<ParticleSystem>(); sparks.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-        var m = sparks.main; m.simulationSpace = ParticleSystemSimulationSpace.World; m.startLifetime = new ParticleSystem.MinMaxCurve(.6f, 1.4f); m.startSpeed = new ParticleSystem.MinMaxCurve(.05f, .3f);
+        var m = sparks.main; m.useUnscaledTime = MenuMode; m.simulationSpace = ParticleSystemSimulationSpace.World; m.startLifetime = new ParticleSystem.MinMaxCurve(.6f, 1.4f); m.startSpeed = new ParticleSystem.MinMaxCurve(.05f, .3f);
         m.startSize = new ParticleSystem.MinMaxCurve(.03f, .07f); m.startColor = new ParticleSystem.MinMaxGradient(colour * 2f, new Color(.6f, .95f, 1f) * 2f); m.maxParticles = 120; m.gravityModifier = -.05f;
         var em = sparks.emission; em.rateOverTime = 0; em.rateOverDistance = 7;
         var sh = sparks.shape; sh.shapeType = ParticleSystemShapeType.Sphere; sh.radius = .12f;
         var col = sparks.colorOverLifetime; col.enabled = true; var g = new Gradient(); g.SetKeys(new[] { new GradientColorKey(Color.white, 0), new GradientColorKey(Color.white, 1) }, new[] { new GradientAlphaKey(1, 0), new GradientAlphaKey(0, 1) }); col.color = g;
         if (sparkMaterial) sg.GetComponent<ParticleSystemRenderer>().sharedMaterial = sparkMaterial;
+        if (MenuMode)
+        {
+            trail.emitting = false; trail.enabled = false;
+        }
         sparks.Play();
         wisp.gameObject.SetActive(false);
     }
@@ -95,6 +99,12 @@ public class GuideWisp : MonoBehaviour
     bool Goal(out Vector3 goal)
     {
         goal = default;
+        var journey = MountainJourney.Instance;
+        if (journey && journey.Ready && journey.Current != MountainJourney.Step.Complete)
+        {
+            goal = journey.GuideDestination;
+            return !journey.Busy;
+        }
         var ce = ChildEncounter.Instance;
         if (ce && ce.Child && ce.Child.gameObject.activeInHierarchy && !ce.HasMet) { goal = ce.Child.transform.position; return true; }
         if (!cottage && Time.time > nextLookup) { cottage = FindFirstObjectByType<CottageChoiceScene>(); nextLookup = Time.time + 2f; }   // never search the scene every frame
@@ -103,8 +113,8 @@ public class GuideWisp : MonoBehaviour
     }
 
     // ---------------------------------------------------------------- update
+    float VisT => MenuMode ? Time.unscaledTime : Time.time;
     public bool MenuMode { get; set; }
-    float VisT => MenuMode ? Time.unscaledTime : Time.time;   // menu wisp keeps living while the comet hold freezes game time
     public bool VisualReady => wisp != null;
     public void SetMenuPose(Vector3 at, float opacity)
     {
@@ -114,6 +124,7 @@ public class GuideWisp : MonoBehaviour
         foreach (var t in wisp.GetComponentsInChildren<Transform>()) t.gameObject.layer = 31;
         Fade(opacity, Time.unscaledDeltaTime);
         trail.widthMultiplier = (.6f + alpha * .6f) * .30f;
+
         glow.intensity = 0;
     }
 

@@ -86,6 +86,11 @@ public class ProceduralFollow : MonoBehaviour
     bool Ground(Vector3 near,out Vector3 point)
     {
         point=near;
+        if (BridgeWalkSurface.TrySupport(near, out _, out var deck))
+        {
+            point=deck+Vector3.up*.04f;
+            return true;
+        }
         int n=Physics.RaycastNonAlloc(near+Vector3.up*2.5f,Vector3.down,hits,6f,solidMask,QueryTriggerInteraction.Ignore);
         float best=float.MaxValue;
         for(int i=0;i<n;i++)
@@ -240,6 +245,7 @@ public class ProceduralFollow : MonoBehaviour
         }
         return direction*speed;
     }
+    float stepDistance;
     void LateUpdate()
     {
         if(!target || !cc.enabled)return;
@@ -266,7 +272,14 @@ public class ProceduralFollow : MonoBehaviour
         // placed (e.g. the comet crater's collider finishing its rebuild while the child stands nearby), snap
         // back onto the true surface in one step instead of letting gravity fight it frame by frame, which is
         // what produced the visible upward glitch / sink-through.
-        if(TerrainProbe.TryGetGroundY(transform.position.x,transform.position.z,out float groundY))
+        bool onBridge=BridgeWalkSurface.TrySupport(transform.position,out var bridge,out var deckSupport);
+        if(onBridge)
+        {
+            float feetY=transform.position.y-cc.height*.5f+cc.center.y-cc.skinWidth;
+            // Only recover penetration. A jump above the deck must remain a jump.
+            if(feetY<deckSupport.y-.25f)Warp(new Vector3(transform.position.x,deckSupport.y+.05f+cc.height*.5f-cc.center.y,transform.position.z));
+        }
+        else if(TerrainProbe.TryGetGroundY(transform.position.x,transform.position.z,out float groundY))
         {
             float feetY=transform.position.y-cc.height*.5f+cc.center.y-cc.skinWidth;
             if(Mathf.Abs(feetY-groundY)>.6f)Warp(new Vector3(transform.position.x,groundY+.05f+cc.height*.5f-cc.center.y,transform.position.z));
@@ -277,6 +290,12 @@ ScanTrees();ChooseBehaviour(separation,moving);
         Vector3 side=Vector3.Cross(Vector3.up,slotDir);
         float weave=(Mathf.PerlinNoise(personality,Time.time*swayFrequency*.22f)-.5f)*2*swayAmplitude;
         Vector3 goal=target.position+slotDir*(moving?followDistance:idleDistance)+side*(moving?weave:0);
+        if(onBridge)
+        {
+            if(CurrentBehaviour!=Behaviour.Follow && CurrentBehaviour!=Behaviour.CatchUp)EndPlay();
+            if(bridge.Project(goal,cc.radius+.2f,out var safeDeckGoal))goal=safeDeckGoal;
+        }
+        else if(BridgeWalkSurface.TrySupport(target.position,out var targetBridge,out _) && targetBridge.Project(goal,cc.radius+.2f,out var entryGoal))goal=entryGoal;
         if(CurrentBehaviour==Behaviour.Explore || CurrentBehaviour==Behaviour.Hide)goal=interestGoal;
         if(CurrentBehaviour==Behaviour.Watch)goal=transform.position;
         if(CurrentBehaviour==Behaviour.Peek)
@@ -315,7 +334,10 @@ ScanTrees();ChooseBehaviour(separation,moving);
         if(cc.isGrounded && vy<0)vy=-2;
         vy=Mathf.Max(vy+gravity*dt,-maxFallSpeed);
         Vector3 before=transform.position;cc.Move((hVel+Vector3.up*vy)*dt);
-        float actualSpeed=Flat(transform.position-before).magnitude/dt;
+        float moved = Flat(transform.position-before).magnitude;
+        if (cc.isGrounded) stepDistance += moved;
+        if (stepDistance >= .73f) { WorldSound.Cue(transform, "ChildStep", 9f); stepDistance = 0; }
+        float actualSpeed=moved/dt;
         if(desired.magnitude>1 && actualSpeed<.18f)stuckTime+=dt;else stuckTime=Mathf.Max(0,stuckTime-dt*2);
         if(stuckTime>1){avoidUntil=Time.time+1;hVel=Vector3.Cross(Vector3.up,Flat(goal-transform.position).normalized)*1.2f;}
         // Only hop low obstacles with clear headroom; never repeatedly jump into a trunk or a wall.

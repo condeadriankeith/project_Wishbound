@@ -1,0 +1,10 @@
+{
+  "branch": "feat/wishbound-vertical-slice",
+  "phase": "P1-route-validation",
+  "last_verified_commit": null,
+  "active_task": "validate compact routes and replay end to end",
+  "completed": ["VERIFIED_EDITOR: compile", "VERIFIED_PLAYMODE: title resume and debug-assisted Tether choice", "VERIFIED_PLAYMODE: procedural terrain and eight outlying farm plots", "VERIFIED_PLAYMODE: eight bridges crossed in both directions with a scripted follow target"],
+  "implemented_unverified": ["summit reconciliation", "compact route and epilogue/replay"],
+  "failed_checks": ["NOT_RUN: full Tether/Roots playthroughs", "NOT_RUN: build and profiling", "NOT_RUN: remote settler job reachability"],
+  "next": "test Roots choice and both playable routes, then continuing art and performance"
+}

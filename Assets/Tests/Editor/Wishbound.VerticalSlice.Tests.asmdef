@@ -1,0 +1,5 @@
+{
+  "name": "Wishbound.VerticalSlice.Tests",
+  "includePlatforms": ["Editor"],
+  "optionalUnityReferences": ["TestAssemblies"]
+}

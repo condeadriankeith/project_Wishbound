@@ -12,18 +12,25 @@ public static class GrassExclusions
     public static void Add(Vector3 worldCentre, float radius) { zones.Add(new Vector3(worldCentre.x, worldCentre.z, radius)); }
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)] public static void Clear() { zones.Clear(); rooms.Clear(); }
     /// <summary>Test in terrain source coordinates (world z is mirrored).</summary>
-    public static bool Contains(double sx, double sz)
+    public static bool Contains(double sx, double sz, float? plantingHeight = null)
     {
         float wx = (float)sx, wz = TerrainMath.MirrorZ ? (float)-sz : (float)sz;
-        if (ContainsWorld(new Vector3(wx, 0, wz))) return true;
+        if (plantingHeight.HasValue)
+        {
+            foreach (var b in rooms)
+                if (plantingHeight.Value <= b.max.y + 2f && plantingHeight.Value >= b.min.y - 4f &&
+                    wx >= b.min.x && wx <= b.max.x && wz >= b.min.z && wz <= b.max.z) return true;
+        }
+        else if (ContainsWorld(new Vector3(wx, 0, wz))) return true;
         for (int i = 0; i < zones.Count; i++) { float dx = wx - zones[i].x, dz = wz - zones[i].y; if (dx * dx + dz * dz < zones[i].z * zones[i].z) return true; }
         return false;
     }
-    public static void AddInterior(Bounds bounds)
+    public static void AddInterior(Bounds bounds, bool clearVegetation = true)
     {
         bounds.Expand(new Vector3(3f, 0f, 3f));
-        if (!rooms.Contains(bounds)) rooms.Add(bounds);
-        ClearExisting();
+        if (rooms.Contains(bounds)) return;
+        rooms.Add(bounds);
+        if (clearVegetation) ClearExisting();
     }
     public static bool ContainsWorld(Vector3 p)
     {
@@ -35,6 +42,7 @@ public static class GrassExclusions
     {
         foreach (var g in Object.FindObjectsByType<IslandStylizedGrass>(FindObjectsSortMode.None)) g.ClearWhere(ContainsWorld);
         foreach (var f in Object.FindObjectsByType<IslandStylizedFlowers>(FindObjectsSortMode.None)) f.ClearWhere(ContainsWorld);
+
     }
     public static long Hash() { long h = zones.Count; foreach (var z in zones) h = h * 31 + (long)(z.x * 10) * 7 + (long)(z.y * 10) * 13 + (long)(z.z * 10); return h; }
 }

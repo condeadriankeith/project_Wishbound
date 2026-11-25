@@ -2,15 +2,6 @@ using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 
-/// <summary>Debug/validation data stored on every lot group created by VillageComposer.</summary>
-public class VillageLot : MonoBehaviour
-{
-    public int lot, settlement, doorSide, styleVariant;
-    public string role, house;
-    public float scale, relief, plinthDrop, uncoveredGap;
-    public bool fenced;
-}
-
 /// <summary>
 /// Phase 5 village composer for the Low Poly Medieval Starter Pack.
 ///
@@ -111,11 +102,19 @@ public static class VillageComposer
             foreach (int li in s.lotIdx)
             {
                 if (li < 0 || li >= SettlementMap.Lots.Length || SettlementMap.Lots[li].dropped) continue;
+                var lot = SettlementMap.Lots[li];
+                if (s.role == Zone.Summit && OnOverlook(lot.x, lot.z)) continue;
                 BuildLot(li, s, sg.transform, styleA, styleB);
             }
             Dress(s, sg.transform);
         }
         Report = MakeReport();
+    }
+
+    static bool OnOverlook(double x, double z)
+    {
+        double dx = x - RoadNet.SummitX, dz = z - RoadNet.SummitZ;
+        return dx * dx + dz * dz < 57 * 57 && WorldField.Height(x,z) > RoadNet.SummitH - 17;
     }
 
     static bool LoadCatalog()
@@ -549,18 +548,19 @@ public static class VillageComposer
         if (s.anchors != null)
             foreach (var a in s.anchors)
             {
+                if (s.role == Zone.Summit && OnOverlook(a.x,a.z)) continue;
                 double toPlaza = System.Math.Atan2(s.plazaX - a.x, s.plazaZ - a.z);
                 switch (a.kind)
                 {
                     case "well": Well(a, g.transform, rng); break;
-                    case "tower": Tower(a, g.transform, rng, toPlaza); break;
+                    case "tower": continue; // summit lookout is reserved for the pond and bench
                     case "chapel":
                     case "monument": Shrine(a, g.transform, rng, toPlaza); break;
                     case "mill": Mill(a, g.transform, rng, toPlaza); break;
                 }
                 nAnchors++;
             }
-        Plaza(s, g.transform, rng);
+        if (s.role != Zone.Summit || !OnOverlook(s.plazaX,s.plazaZ)) Plaza(s, g.transform, rng);
     }
 
     static void Well(SettlementMap.Anchor a, Transform p, System.Random rng)
@@ -591,26 +591,6 @@ public static class VillageComposer
             double ang = rng.NextDouble() * 6.283, d = Rf(rng, 2.2f, 3.4f), x = a.x + Cs(ang) * d, z = a.z + Sn(ang) * d;
             if (Blocked(x, z) || !FreeOfBuildings(x, z, 0.6)) continue;
             var e = rocks[rng.Next(rocks.Count)]; Put(e, p, x, z, Rf(rng, 0.8f, 1.4f), rng.NextDouble() * 6.283, 0.1f, 0f); Count(e.id);
-        }
-    }
-
-    static void Tower(SettlementMap.Anchor a, Transform p, System.Random rng, double toPlaza)
-    {
-        var e = cat.Get("CastleTower"); if (e == null) return;
-        float rel, gap; bool pl; Obb ob;
-        PlaceBuilding(e, p, a.x, a.z, toPlaza, 1.0f, rng, 0, 0, out rel, out pl, out gap, out ob);
-        perType["CastleTower"] = perType.ContainsKey("CastleTower") ? perType["CastleTower"] + 1 : 1;
-
-        // fallen walls, an arch and rubble around the base
-        var ruins = cat.Of(VKind.Ruin); var rocks = cat.Of(VKind.Rock);
-        int want = rng.Next(4, 7), placed = 0;
-        for (int t = 0; t < 40 && placed < want; t++)
-        {
-            double ang = rng.NextDouble() * 6.283, d = Rf(rng, 6.5f, 13f), x = a.x + Cs(ang) * d, z = a.z + Sn(ang) * d;
-            if (Blocked(x, z) || Slope(x, z) > 0.5f || !FreeOfBuildings(x, z, 2.0)) continue;
-            var pick = (rng.NextDouble() < 0.6 && ruins.Count > 0) ? ruins[rng.Next(ruins.Count)] : (rocks.Count > 0 ? rocks[rng.Next(rocks.Count)] : null);
-            if (pick == null) break;
-            Put(pick, p, x, z, Rf(rng, 0.9f, 1.4f), rng.NextDouble() * 6.283, 0.08f, 0f); Count(pick.id); placed++;
         }
     }
 

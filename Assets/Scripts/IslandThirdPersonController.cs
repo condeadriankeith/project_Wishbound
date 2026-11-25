@@ -93,7 +93,9 @@ public class IslandThirdPersonController : MonoBehaviour
     float camYaw, camPitch, vy, distCurrent, distTarget, fovCurrent, distVel;
     Vector3 hVel;
     bool crouching, sprinting, wantLock = true;
-    int skipLookFrames;
+    int suppressMouseUntilFrame;
+    internal bool CanReadMouseLook => Time.frameCount >= suppressMouseUntilFrame &&
+        Application.isFocused && Cursor.lockState == CursorLockMode.Locked;
     float standHeight, bottomY, targetStand, targetCrouch;
     Vector3 startPos; float startYaw;
     float heldSeconds, floatBegan; bool softFall;
@@ -159,7 +161,12 @@ public class IslandThirdPersonController : MonoBehaviour
         ApplyAvatarVisibility();
     }
 
-    void OnApplicationFocus(bool focus) { if (focus && wantLock) SetCursorLocked(true); }
+    void OnApplicationFocus(bool focus)
+    {
+        if (focus && wantLock && isActiveAndEnabled && !PauseMenu.IsOpen &&
+            !WishboundIntro.IsPlaying && !CutsceneDirector.Active)
+            SetCursorLocked(true);
+    }
     void OnDisable() { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
 
     public void CaptureCursor() => SetCursorLocked(true);
@@ -170,7 +177,7 @@ public class IslandThirdPersonController : MonoBehaviour
         wantLock = locked;
         Cursor.lockState = locked ? CursorLockMode.Locked : CursorLockMode.None;
         Cursor.visible = !locked;
-        skipLookFrames = 2;   // swallow the mouse-delta spike that comes with (un)locking
+        suppressMouseUntilFrame = Time.frameCount + 2;
     }
 
     public void SetAvatarVisible(bool visible) { showAvatar = visible; ApplyAvatarVisibility(); }
@@ -182,39 +189,35 @@ public class IslandThirdPersonController : MonoBehaviour
 
     void Update()
     {
-        var kb = Keyboard.current; var ms = Mouse.current; var gp = Gamepad.current;
+        if (PauseMenu.IsOpen || !Application.isFocused) return;
+        var gp = Gamepad.current;
         float dt = Mathf.Min(Time.deltaTime, 0.05f);
 
-        // ---- cursor capture: Esc releases, click recaptures
-        if (kb != null && kb.escapeKey.wasPressedThisFrame && !CutsceneSkip.JustFired) SetCursorLocked(false);
-        else if (ms != null && ms.leftButton.wasPressedThisFrame && !LivingDayNight.PointerOverPanel && Cursor.lockState != CursorLockMode.Locked) SetCursorLocked(true);
+        // PauseMenu owns Esc. A click re-captures the pointer after focus changes.
+        if (WishboundInput.PrimaryPressed && !LivingDayNight.PointerOverPanel && Cursor.lockState != CursorLockMode.Locked) SetCursorLocked(true);
         bool locked = Cursor.lockState == CursorLockMode.Locked;
 
         // ---- gather input
         Vector2 move = Vector2.zero, look = Vector2.zero;
         bool sprintHeld = false, jumpPressed = false, jumpHeld = false, crouchHeld = false;
-        float scroll = 0f;
 
-        if (kb != null)
         {
-            move.x += (kb.dKey.isPressed ? 1 : 0) - (kb.aKey.isPressed ? 1 : 0);
-            move.y += (kb.wKey.isPressed ? 1 : 0) - (kb.sKey.isPressed ? 1 : 0);
-            sprintHeld |= kb.leftShiftKey.isPressed;
-            jumpPressed |= kb.spaceKey.wasPressedThisFrame;
-            jumpHeld |= kb.spaceKey.isPressed;
-            crouchHeld |= kb.cKey.isPressed || kb.leftCtrlKey.isPressed;
+            move.x += (WishboundInput.Held(Key.D, KeyCode.D) ? 1 : 0) - (WishboundInput.Held(Key.A, KeyCode.A) ? 1 : 0);
+            move.y += (WishboundInput.Held(Key.W, KeyCode.W) ? 1 : 0) - (WishboundInput.Held(Key.S, KeyCode.S) ? 1 : 0);
+            sprintHeld |= WishboundInput.Held(Key.LeftShift, KeyCode.LeftShift);
+            jumpPressed |= WishboundInput.Pressed(Key.Space, KeyCode.Space);
+            jumpHeld |= WishboundInput.Held(Key.Space, KeyCode.Space);
+            crouchHeld |= WishboundInput.Held(Key.C, KeyCode.C) || WishboundInput.Held(Key.LeftCtrl, KeyCode.LeftControl);
 
-            if (kb.digit1Key.wasPressedThisFrame) SetCameraMode(1);
-            else if (kb.digit2Key.wasPressedThisFrame) SetCameraMode(2);
-            else if (kb.digit3Key.wasPressedThisFrame) SetCameraMode(3);
+            if (WishboundInput.Pressed(Key.Digit1, KeyCode.Alpha1)) SetCameraMode(1);
+            else if (WishboundInput.Pressed(Key.Digit2, KeyCode.Alpha2)) SetCameraMode(2);
+            else if (WishboundInput.Pressed(Key.Digit3, KeyCode.Alpha3)) SetCameraMode(3);
         }
-        if (ms != null && locked)
+        if (locked)
         {
-            if (skipLookFrames <= 0) look += ms.delta.ReadValue() * lookSensitivity;
-            scroll = ms.scroll.ReadValue().y;
+            if (!isoRig && CanReadMouseLook) look += WishboundInput.MouseDelta * lookSensitivity;
         }
-        if (skipLookFrames > 0) skipLookFrames--;
-        if (gp != null)
+         if (gp != null)
         {
             move += gp.leftStick.ReadValue();
             look += gp.rightStick.ReadValue() * gamepadLookSpeed * dt;

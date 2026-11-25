@@ -26,11 +26,11 @@ Material:
     m_Ints: []
     m_Floats:
     - _Angle: 0
-    - _BandHalfHeight: 0.09
+    - _BandHalfHeight: 0.22
     - _BokehBoost: 0.35
     - _Falloff: 0.28
     - _FocusY: 0.5
-    - _MaxBlurRadius: 26
+    - _MaxBlurRadius: 6
     - _Saturation: 1.1
     m_Colors: []
   m_BuildTextureStacks: []

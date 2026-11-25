@@ -4,7 +4,7 @@ using UnityEngine.Rendering.Universal;
 using UnityEngine.UI;
 
 /// <summary>
-/// The one pointer used everywhere the mouse is free (pause menu, settings, any UI). It is a real GuideWisp running in
+/// The one pointer for the title and pause pages (and the epilogue choice), and no other page. It is a real GuideWisp running in
 /// MenuMode, so it is built from WispPreset exactly like the tutorial wisp: same layers, motes, trail and sparks.
 /// The OS cursor is hidden whenever this is showing. Anything that draws its own wisp pointer (title menu, farewell)
 /// raises Claims so two are never shown; cutscenes raise Hidden to take the pointer away completely.
@@ -15,8 +15,15 @@ public sealed class WispCursor : MonoBehaviour
     public static bool Hidden;
     public static Vector2? ScreenOverride;   // set by the title menu so the one cursor wisp follows its magnetic pointer
     public static WispCursor Instance { get; private set; }
+    internal static WishboundTitleMenu TitleOwner { get; set; }
+    public static bool IsShowing => Instance && Instance.Want && Instance.built &&
+        Instance.wisp && Instance.wisp.VisualReady && Instance.rt && Instance.rt.IsCreated() &&
+        Instance.image.enabled;
 
     GuideWisp wisp; Camera cam; RenderTexture rt; RawImage image; Material additive; Canvas canvas;
+    bool wasVisible;
+    Vector2 lastSoundPoint;
+    float nextIdle, nextMove;
     float fade, nextTry; bool built;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -28,21 +35,36 @@ public sealed class WispCursor : MonoBehaviour
 
     void Awake() { if (Instance && Instance != this) { Destroy(gameObject); return; } Instance = this; Claims = 0; Hidden = false; }
 
-    bool Want => Claims <= 0 && !Hidden && (!WishboundIntro.IsPlaying || ScreenOverride.HasValue) && !WishboundFarewell.IsPlaying
-                 && Cursor.lockState != CursorLockMode.Locked && Application.isFocused && Mouse.current != null;
+    bool Want => !WishboundFarewell.IsPlaying &&
+        Cursor.lockState != CursorLockMode.Locked &&
+        ((TitleOwner && ScreenOverride.HasValue) ||
+            (Application.isFocused && Claims <= 0 && !Hidden &&
+                (ScreenOverride.HasValue || (!WishboundIntro.IsPlaying && PauseMenu.IsOpen))));
 
     void LateUpdate()
     {
         bool want = Want;
         if (!built) { if (want && Time.unscaledTime > nextTry) TryBuild(); return; }
+        if (want != wasVisible)
+        {
+            WorldSound.Menu(want ? "Appear" : "Dismiss");
+            lastSoundPoint = ScreenOverride ?? WishboundInput.Pointer;
+            nextIdle = Time.unscaledTime + 9f;
+            wasVisible = want;
+        }
         fade = Mathf.MoveTowards(fade, want ? 1f : 0f, Time.unscaledDeltaTime * 6f);
         bool show = fade > .001f;
         image.enabled = show; cam.enabled = show;
         if (!show) return;
-        if (want) Cursor.visible = false;
-        if (Mathf.Abs(cam.aspect - (float)Screen.width / Mathf.Max(1, Screen.height)) > .01f) Resize();
-        if (Mouse.current == null && !ScreenOverride.HasValue) return;
-        Vector2 p = ScreenOverride ?? Mouse.current.position.ReadValue();
+        if (!rt || !rt.IsCreated() || Mathf.Abs(cam.aspect - (float)Screen.width / Mathf.Max(1, Screen.height)) > .01f) Resize();
+        if (IsShowing) Cursor.visible = false;
+        Vector2 p = ScreenOverride ?? WishboundInput.Pointer;
+        if (want && Time.unscaledTime > nextMove && Vector2.Distance(p,lastSoundPoint) > Screen.height * .25f)
+        {
+            WorldSound.Menu("Drift"); lastSoundPoint = p; nextMove = Time.unscaledTime + 1.5f;
+            nextIdle = Time.unscaledTime + 9f;
+        }
+        if (want && Time.unscaledTime > nextIdle) { WorldSound.Menu("Idle"); nextIdle = Time.unscaledTime + 12f; }
         Vector3 at = cam.ViewportToWorldPoint(new Vector3(p.x / Screen.width, p.y / Screen.height, 20f));
         wisp.SetMenuPose(at, fade);
         image.color = new Color(1, 1, 1, fade);
@@ -51,10 +73,15 @@ public sealed class WispCursor : MonoBehaviour
     void TryBuild()
     {
         nextTry = Time.unscaledTime + 1f;
-        Material halo = null, spark = null; Color col = WispPreset.Colour;
-        foreach (var g in FindObjectsByType<GuideWisp>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-            if (g.haloMaterial && !g.MenuMode) { halo = g.haloMaterial; spark = g.sparkMaterial; col = g.colour; break; }
-        if (!halo) { halo = Resources.Load<Material>("Art/Star/StarHalo"); spark = Resources.Load<Material>("Art/Comet/CometEmber"); }   // title screen has no tutorial wisp
+        var intro = WishboundIntro.Instance;
+        Material halo = intro ? intro.starHaloMaterial : null;
+        Material spark = intro ? intro.sparkMaterial : null;
+        if (!halo)
+        {
+            foreach (var guide in FindObjectsByType<GuideWisp>(FindObjectsInactive.Include,FindObjectsSortMode.None))
+                if (!guide.MenuMode && guide.haloMaterial) { halo=guide.haloMaterial; spark=guide.sparkMaterial; break; }
+        }
+        Color col = WispPreset.Colour;
         var shader = Resources.Load<Shader>("WishMenuAdditive");
         if (!halo || !shader) return;
 
@@ -81,7 +108,7 @@ public sealed class WispCursor : MonoBehaviour
     void Resize()
     {
         if (rt) { cam.targetTexture = null; rt.Release(); Destroy(rt); }
-        int h = Mathf.Min(Screen.height, 1080), w = Mathf.RoundToInt(h * (float)Screen.width / Mathf.Max(1, Screen.height));
+        int h = Mathf.Min(Screen.height, 540), w = Mathf.RoundToInt(h * (float)Screen.width / Mathf.Max(1, Screen.height));
         rt = new RenderTexture(Mathf.Max(1, w), Mathf.Max(1, h), 16, RenderTextureFormat.ARGBHalf); rt.Create();
         cam.targetTexture = rt; cam.aspect = (float)w / Mathf.Max(1, h); image.texture = rt;
     }

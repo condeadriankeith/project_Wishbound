@@ -54,8 +54,9 @@ public class IslandStylizedGrass : MonoBehaviour
     readonly Plane[] planes = new Plane[6];
     [SerializeField, HideInInspector] bool started;   // serialized: survives a script reload during Play
     bool building;
+    public float ScatterProgress { get; private set; }
 
-    public bool Ready => batches != null && batches.Count > 0 && !building;
+    public bool Ready => ScatterProgress >= 1f && !building;
 
     public int ClearWhere(System.Func<Vector3, bool> inside)
     {
@@ -79,7 +80,8 @@ public class IslandStylizedGrass : MonoBehaviour
 IEnumerator Reinit()
     {
         while (IslandBuilder.Instance == null || IslandBuilder.Instance.PathMap == null) yield return null;
-        yield return new WaitForSecondsRealtime(1.5f);   // let the first frames render before baking
+        var footprints = FindFirstObjectByType<VillageGrassClearer>();
+        while (footprints && footprints.isActiveAndEnabled && !footprints.HouseFootprintsReady) yield return null;
         yield return StartCoroutine(Init());
     }
 
@@ -94,6 +96,7 @@ IEnumerator Reinit()
     IEnumerator Init()
     {
         building = true;
+        ScatterProgress = 0f;
         batches.Clear();
         natureSet = usePackageAssets ? GhibliNatureSet.Load() : null;
         if (natureSet == null || natureSet.grass.Count == 0) { Debug.LogError("[IslandStylizedGrass] GhibliNatureSet missing (run menu Island/Ghibli/Build Nature Set)"); building = false; yield break; }
@@ -119,12 +122,16 @@ IEnumerator Reinit()
             double x = (rng.NextDouble() * 2 - 1) * e;
             double z = (rng.NextDouble() * 2 - 1) * e;
             float r1 = (float)rng.NextDouble(), r2 = (float)rng.NextDouble(), r3 = (float)rng.NextDouble(), r4 = (float)rng.NextDouble();
-            if (sw.Elapsed.TotalMilliseconds >= Mathf.Min(scatterBudgetMs, 3f)) { yield return null; sw.Restart(); }
+            if (sw.Elapsed.TotalMilliseconds >= Mathf.Max(WishboundIntro.IsPlaying ? 8f : 1f, scatterBudgetMs)) {
+                ScatterProgress = .94f * Mathf.Max((float)accepted / Mathf.Max(1,target), (float)attempts / Mathf.Max(1,guard));
+                yield return null;
+                sw.Restart();
+            }
 
             if (GrassExclusions.Contains(x, z)) continue;
             float h = Hm(x, z);   // rendered-mesh height: clumps sit on visible ground
             if (h < minHeight || h > maxHeight) continue;
-            float normalY = NV(x, z).y;   // one accurate analytic-normal check at the candidate point
+            float normalY = NVm(x, z).y;   // use the terrain mesh already built for this scene
             if (normalY < minSlopeY) continue;
             // Cheap cliff-margin check: approximate neighbour slope from mesh HEIGHT deltas (Hm, already
             // computed / cached-cheap) instead of 4x more NV() calls (each NV = 2x expensive H() evaluations).
@@ -159,15 +166,16 @@ IEnumerator Reinit()
             var b = new GhibliBatch(pc.mesh, pc.materials) { shadows = UnityEngine.Rendering.ShadowCastingMode.Off };
             b.Build(lists[i], 16f, new Vector3(pc.MaxXZ * maxScale * 1.6f, pc.maxY * maxScale * 1.5f, pc.MaxXZ * maxScale * 1.6f), farEvery, farScale);
             batches.Add(b);
+            ScatterProgress = .94f + .06f * (i+1) / np;
             yield return null;   // spread the chunk build over frames: no single-frame spike
         }
         building = false;
         Debug.Log("[IslandStylizedGrass] Ghibli package grass: " + accepted + " clumps planted in " + total.Elapsed.TotalSeconds.ToString("F1") + " s (attempts " + attempts + ").");
     }
 
-    void Update()
+    void LateUpdate()
     {
-        if (batches.Count == 0 || (HouseEntrances.Instance && HouseEntrances.Instance.Inside)) return;
+        if (!Ready || batches.Count == 0 || (HouseEntrances.Instance && HouseEntrances.Instance.Inside)) return;
         var cam = Camera.main; if (cam == null) return;
         GeometryUtility.CalculateFrustumPlanes(cam, planes);
         Vector3 cp = cam.transform.position;

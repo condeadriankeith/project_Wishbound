@@ -23,7 +23,7 @@ public class PainterlyLook : MonoBehaviour
 
     void Update()
     {
-        if (hotkey && Application.isPlaying && Keyboard.current != null && Keyboard.current.f8Key.wasPressedThisFrame)
+        if (hotkey && Application.isPlaying && WishboundInput.Pressed(Key.F8, KeyCode.F8))
         { quality = (Quality)(((int)quality + 1) % 4); Apply(); }
     }
 

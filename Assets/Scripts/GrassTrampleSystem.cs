@@ -47,6 +47,14 @@ public class GrassTrampleSystem : MonoBehaviour
 
     void Awake()
     {
+        var decayShader = Shader.Find("Hidden/GrassTrampleDecay");
+        var stampShader = Shader.Find("Hidden/GrassTrampleStamp");
+        if (!decayShader || !stampShader)
+        {
+            enabled = false;
+            Debug.LogWarning("Grass trampling shaders are unavailable.");
+            return;
+        }
         var desc = new RenderTextureDescriptor(resolution, resolution, RenderTextureFormat.ARGB32, 0)
         {
             sRGB = false
@@ -60,8 +68,8 @@ public class GrassTrampleSystem : MonoBehaviour
         _trampleRT.Create();
         ClearToNeutral();
 
-        _decayMat = new Material(Shader.Find("Hidden/GrassTrampleDecay")) { name = "TrampleDecay" };
-        _stampMat = new Material(Shader.Find("Hidden/GrassTrampleStamp")) { name = "TrampleStamp" };
+        _decayMat = new Material(decayShader) { name = "TrampleDecay" };
+        _stampMat = new Material(stampShader) { name = "TrampleStamp" };
     }
 
     void Start()

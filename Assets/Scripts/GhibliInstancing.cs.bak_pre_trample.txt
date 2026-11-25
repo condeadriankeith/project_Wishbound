@@ -1,0 +1,178 @@
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Rendering;
+
+/// <summary>
+/// Chunked GPU-instanced renderer for one mesh (+ per-submesh materials).
+/// Instances are bucketed into square cells (&lt;=1023 per draw), frustum + distance culled,
+/// and can carry a reduced "far" array (every Nth instance, enlarged) for cheap distance LOD.
+/// Used by the Ghibli tree / shrub / grass / flower / rock renderers.
+///
+/// Occlusion-fade support: Build() can optionally record, for each input index, which (chunkIndex, slotIndex)
+/// it landed in (chunking buckets by spatial cell, so insertion order and draw order differ). Draw() then
+/// accepts a set of (chunkIndex, slotIndex) pairs to exclude from the normal opaque instanced draw - the caller
+/// (TreeOcclusionFader) draws those excluded instances separately with a translucent "ghost" material via
+/// DrawSingleInstance, so a tree between the camera and the avatar can fade without moving/zooming the camera.
+/// </summary>
+public class GhibliBatch
+{
+    public Mesh mesh;
+    public Material[] mats;
+    public ShadowCastingMode shadows = ShadowCastingMode.On;
+    public int Count { get; private set; }
+
+    struct Chunk { public Matrix4x4[] m; public int n; public Matrix4x4[] far; public int farN; public Bounds b; }
+    readonly List<Chunk> chunks = new List<Chunk>();
+
+    // input-list-index -> (chunkIndex, slotIndex), only populated when Build is called with recordMapping: true
+    int[] inputIndexToChunk;
+    int[] inputIndexToSlot;
+
+    public GhibliBatch(Mesh mesh, Material[] mats) { this.mesh = mesh; this.mats = mats; }
+
+    /// <param name="cell">spatial cell size in metres</param>
+    /// <param name="pad">extra bounds around instance positions (mesh extent x max scale)</param>
+    /// <param name="farEvery">0/1 = no far LOD; N = far array keeps every Nth instance</param>
+    /// <param name="farScale">uniform scale multiplier applied to far instances (compensates for thinning)</param>
+    /// <param name="recordMapping">when true, GetChunkSlot(inputIndex) becomes valid after this call</param>
+    public void Build(List<Matrix4x4> all, float cell, Vector3 pad, int farEvery = 0, float farScale = 1f, bool recordMapping = false)
+    {
+        chunks.Clear();
+        Count = all.Count;
+        var map = new Dictionary<long, List<int>>();   // cell key -> original indices into `all`, insertion order preserved
+        for (int i = 0; i < all.Count; i++)
+        {
+            Vector4 p = all[i].GetColumn(3);
+            long k = ((long)Mathf.FloorToInt(p.x / cell) << 32) ^ (uint)Mathf.FloorToInt(p.z / cell);
+            List<int> lst;
+            if (!map.TryGetValue(k, out lst)) { lst = new List<int>(); map[k] = lst; }
+            lst.Add(i);
+        }
+
+        if (recordMapping)
+        {
+            inputIndexToChunk = new int[all.Count];
+            inputIndexToSlot = new int[all.Count];
+        }
+        else { inputIndexToChunk = null; inputIndexToSlot = null; }
+
+        foreach (var lst in map.Values)
+            for (int i = 0; i < lst.Count; i += 1023)
+            {
+                int n = Mathf.Min(1023, lst.Count - i);
+                var arr = new Matrix4x4[n];
+                for (int j = 0; j < n; j++)
+                {
+                    int srcIdx = lst[i + j];
+                    arr[j] = all[srcIdx];
+                    if (recordMapping) { inputIndexToChunk[srcIdx] = chunks.Count; inputIndexToSlot[srcIdx] = j; }
+                }
+                Vector3 mn = arr[0].GetColumn(3), mx = mn;
+                for (int j = 1; j < n; j++) { Vector3 q = arr[j].GetColumn(3); mn = Vector3.Min(mn, q); mx = Vector3.Max(mx, q); }
+                var c = new Chunk { m = arr, n = n, b = new Bounds((mn + mx) * 0.5f + Vector3.up * pad.y * 0.5f, (mx - mn) + pad) };
+                if (farEvery > 1)
+                {
+                    var far = new List<Matrix4x4>(n / farEvery + 1);
+                    var sc = Matrix4x4.identity; sc.m00 = sc.m11 = sc.m22 = farScale;   // hand-built uniform scale: keeps Build() free of engine calls so it can run on a worker thread
+                    for (int j = 0; j < n; j += farEvery) far.Add(farScale == 1f ? arr[j] : arr[j] * sc);
+                    c.far = far.ToArray(); c.farN = far.Count;
+                }
+                chunks.Add(c);
+            }
+    }
+
+    /// <summary>Resolves an input index (as passed to Build's `all` list) to its (chunkIndex, slotIndex) in the
+    /// draw-order chunks. Only valid when Build was called with recordMapping: true. Returns false if out of range
+    /// or no mapping was recorded.</summary>
+    public bool GetChunkSlot(int inputIndex, out int chunkIndex, out int slotIndex)
+    {
+        if (inputIndexToChunk == null || inputIndex < 0 || inputIndex >= inputIndexToChunk.Length)
+        {
+            chunkIndex = -1; slotIndex = -1; return false;
+        }
+        chunkIndex = inputIndexToChunk[inputIndex];
+        slotIndex = inputIndexToSlot[inputIndex];
+        return true;
+    }
+
+    /// <summary>World matrix of a specific chunk/slot, for drawing a single excluded instance separately (e.g. translucent).</summary>
+    public bool TryGetMatrix(int chunkIndex, int slotIndex, out Matrix4x4 m)
+    {
+        if (chunkIndex < 0 || chunkIndex >= chunks.Count) { m = default; return false; }
+        var c = chunks[chunkIndex];
+        if (slotIndex < 0 || slotIndex >= c.n) { m = default; return false; }
+        m = c.m[slotIndex];
+        return true;
+    }
+
+    /// <param name="maxDist">chunks farther than this are skipped</param>
+    /// <param name="nearDist">beyond this distance the thinned far array is drawn (if one exists)</param>
+    /// <param name="keepDist">chunks within this distance are drawn even when off-screen (so shadows never pop)</param>
+    /// <param name="excludeSlots">optional: (chunkIndex,slotIndex) pairs to skip this draw (drawn translucent elsewhere instead)</param>
+    public void Draw(Vector3 camPos, Plane[] planes, float maxDist, float nearDist, float keepDist, HashSet<(int chunk, int slot)> excludeSlots = null)
+    {
+        if (mesh == null || mats == null || chunks.Count == 0) return;
+        float maxD2 = maxDist * maxDist, nearD2 = nearDist * nearDist, keepD2 = keepDist * keepDist;
+        int subs = mesh.subMeshCount;
+        bool hasExclusions = excludeSlots != null && excludeSlots.Count > 0;
+
+        // scratch buffer reused across chunks when we need to drop a few excluded slots out of the instanced array
+        Matrix4x4[] scratch = null;
+
+        for (int i = 0; i < chunks.Count; i++)
+        {
+            var c = chunks[i];
+            float d2 = c.b.SqrDistance(camPos);
+            if (d2 > maxD2) continue;
+            if (d2 > keepD2 && !GeometryUtility.TestPlanesAABB(planes, c.b)) continue;
+            bool useFar = c.farN > 0 && d2 > nearD2;
+            var arr = useFar ? c.far : c.m;
+            int n = useFar ? c.farN : c.n;
+
+            // the far/thinned array only ever contains a subset of slot indices (every Nth); excluding specific
+            // slot indices from it would misalign which instance is which, so exclusion only applies to the
+            // full-resolution draw. In practice occlusion fade only matters for near, on-screen trees anyway.
+            if (hasExclusions && !useFar)
+            {
+                if (scratch == null || scratch.Length < n) scratch = new Matrix4x4[Mathf.Max(n, 64)];
+                int outN = 0;
+                for (int j = 0; j < n; j++)
+                {
+                    if (excludeSlots.Contains((i, j))) continue;
+                    scratch[outN++] = arr[j];
+                }
+                if (outN == 0) continue;
+                for (int s = 0; s < subs; s++)
+                {
+                    var mat = mats[Mathf.Min(s, mats.Length - 1)];
+                    if (mat == null) continue;
+                    Graphics.DrawMeshInstanced(mesh, s, mat, scratch, outN, null, shadows, true);
+                }
+                continue;
+            }
+
+            for (int s = 0; s < subs; s++)
+            {
+                var mat = mats[Mathf.Min(s, mats.Length - 1)];
+                if (mat == null) continue;
+                Graphics.DrawMeshInstanced(mesh, s, mat, arr, n, null, shadows, true);
+            }
+        }
+    }
+
+    /// <summary>Draws one instance (all submeshes) with the given per-submesh material override - used to render
+    /// a single occluding tree translucent while it's excluded from the normal opaque batch above.</summary>
+    public void DrawSingleInstance(Matrix4x4 m, Material[] overrideMats, ShadowCastingMode shadowMode = ShadowCastingMode.Off)
+    {
+        if (mesh == null) return;
+        int subs = mesh.subMeshCount;
+        for (int s = 0; s < subs; s++)
+        {
+            var srcMats = overrideMats ?? mats;
+            if (srcMats == null) continue;
+            var mat = srcMats[Mathf.Min(s, srcMats.Length - 1)];
+            if (mat == null) continue;
+            Graphics.DrawMesh(mesh, m, mat, 0, null, s, null, shadowMode, false);
+        }
+    }
+}

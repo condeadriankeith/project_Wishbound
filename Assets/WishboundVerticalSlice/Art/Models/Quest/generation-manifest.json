@@ -1,0 +1,65 @@
+[
+  {
+    "asset": "FerryParcel",
+    "vertices": 1128,
+    "parts": 47,
+    "uv": "smart-projected per part",
+    "source": "C:/Users/conde/Downloads/project_Wishbound/Tools/VerticalSlice/build_quest_props.py",
+    "license": "Original procedural artwork for Wishbound",
+    "visual_status": "NOT_REVIEWED"
+  },
+  {
+    "asset": "ThawPrism",
+    "vertices": 2555,
+    "parts": 22,
+    "uv": "smart-projected per part",
+    "source": "C:/Users/conde/Downloads/project_Wishbound/Tools/VerticalSlice/build_quest_props.py",
+    "license": "Original procedural artwork for Wishbound",
+    "visual_status": "NOT_REVIEWED"
+  },
+  {
+    "asset": "ShadowStone0",
+    "vertices": 1220,
+    "parts": 12,
+    "uv": "smart-projected per part",
+    "source": "C:/Users/conde/Downloads/project_Wishbound/Tools/VerticalSlice/build_quest_props.py",
+    "license": "Original procedural artwork for Wishbound",
+    "visual_status": "NOT_REVIEWED"
+  },
+  {
+    "asset": "ShadowStone1",
+    "vertices": 1212,
+    "parts": 12,
+    "uv": "smart-projected per part",
+    "source": "C:/Users/conde/Downloads/project_Wishbound/Tools/VerticalSlice/build_quest_props.py",
+    "license": "Original procedural artwork for Wishbound",
+    "visual_status": "NOT_REVIEWED"
+  },
+  {
+    "asset": "ShadowStone2",
+    "vertices": 1232,
+    "parts": 12,
+    "uv": "smart-projected per part",
+    "source": "C:/Users/conde/Downloads/project_Wishbound/Tools/VerticalSlice/build_quest_props.py",
+    "license": "Original procedural artwork for Wishbound",
+    "visual_status": "NOT_REVIEWED"
+  },
+  {
+    "asset": "ObservatoryAltar",
+    "vertices": 6544,
+    "parts": 51,
+    "uv": "smart-projected per part",
+    "source": "C:/Users/conde/Downloads/project_Wishbound/Tools/VerticalSlice/build_quest_props.py",
+    "license": "Original procedural artwork for Wishbound",
+    "visual_status": "NOT_REVIEWED"
+  },
+  {
+    "asset": "FerryPier",
+    "vertices": 11512,
+    "parts": 52,
+    "uv": "smart-projected per part",
+    "source": "C:/Users/conde/Downloads/project_Wishbound/Tools/VerticalSlice/build_quest_props.py",
+    "license": "Original procedural artwork for Wishbound",
+    "visual_status": "NOT_REVIEWED"
+  }
+]

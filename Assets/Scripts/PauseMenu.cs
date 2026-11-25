@@ -7,32 +7,36 @@ using UnityEngine.UI;
 
 /// <summary>
 /// General in-game pause overlay (ESC). Shows the same settings controls as the title screen
-/// (volume, look speed, fullscreen) plus RESUME and QUIT. Pauses game time while open and
-/// restores it cleanly on resume; QUIT plays the shared WishboundFarewell sequence and exits the game.
+/// (volume, look speed, fullscreen) plus RESUME and QUIT, with the same magnetic wisp pointer (WispMagnet).
+/// Pauses game time while open and restores it cleanly on resume; QUIT plays the shared WishboundFarewell
+/// sequence and exits the game.
 /// Built as its own canvas so it never depends on WishboundIntro's (which is torn down after the intro).
 /// </summary>
 public sealed class PauseMenu : MonoBehaviour
 {
-    sealed class Choice
+    sealed class Choice : WispWord
     {
-        public Text text; public CanvasGroup group; public RectTransform rect;
-        public Shadow[] glow; public Action action; public float heat;
+        public CanvasGroup group; public Action action;
     }
 
     public static PauseMenu Instance { get; private set; }
     public static bool IsOpen => Instance && Instance.open;
 
+    WishProgressPage progressPage;
+    int pageClosedFrame=-1;
     Canvas canvas; RectTransform root; Image dim; CanvasGroup panelGroup; RectTransform panel;
     readonly List<Choice> items = new List<Choice>();
+    readonly WispMagnet magnet = new WispMagnet();
     Font font;
-    bool open, busy;
-    int selected = -1;
+    bool open, busy, keyboardSelection, pointerSeen;
+    Vector2 previousPointer;
     float priorTimeScale = 1f;
     CursorLockMode priorLockState; bool priorCursorVisible;
     IslandThirdPersonController player;
 
     public static void Toggle()
     {
+        if (WishboundEpilogue.Active) return;
         if (!Instance)
         {
             var go = new GameObject("PauseMenu"); DontDestroyOnLoad(go);
@@ -74,7 +78,8 @@ public sealed class PauseMenu : MonoBehaviour
         items.Add(MakeChoice("", new Vector2(0, 65), new Vector2(600, 66), () => ChangeVolume(.1f)));
         items.Add(MakeChoice("", new Vector2(0, -20), new Vector2(600, 66), () => ChangeSensitivity(.02f)));
         items.Add(MakeChoice("", new Vector2(0, -105), new Vector2(600, 66), () => { WishboundSettings.SetFullscreen(!Screen.fullScreen); Refresh(); }));
-        items.Add(MakeChoice("QUIT", new Vector2(0, -225), new Vector2(420, 70), RequestQuit));
+        items.Add(MakeChoice("SAVED PROGRESS",new Vector2(0,-175),new Vector2(640,66),OpenProgress));
+        items.Add(MakeChoice("QUIT", new Vector2(0, -250), new Vector2(420, 70), RequestQuit));
 
         var help = MakeChoice("UP / DOWN TO SELECT   -   LEFT / RIGHT TO ADJUST   -   ESC TO RESUME", new Vector2(0, -320), new Vector2(900, 45), null);
         help.text.fontSize = 20; help.group.alpha = .65f; help.group.blocksRaycasts = false;
@@ -89,19 +94,27 @@ public sealed class PauseMenu : MonoBehaviour
         go.transform.SetParent(panel, false);
         var r = (RectTransform)go.transform; r.anchorMin = r.anchorMax = r.pivot = new Vector2(.5f, .5f); r.anchoredPosition = pos; r.sizeDelta = size;
         var t = go.GetComponent<Text>(); t.text = caption; t.font = font; t.fontSize = 44; t.alignment = TextAnchor.MiddleCenter; t.color = Color.white; t.raycastTarget = false;
-        var shadows = new Shadow[4]; Vector2[] offsets = { new Vector2(2, 0), new Vector2(-2, 0), new Vector2(0, 2), new Vector2(0, -2) };
-        for (int i = 0; i < 4; i++) { shadows[i] = go.AddComponent<Shadow>(); shadows[i].effectDistance = offsets[i]; shadows[i].effectColor = Color.clear; }
-        var c = new Choice { text = t, rect = r, group = go.GetComponent<CanvasGroup>(), action = action, glow = shadows };
-        return c;
+        return new Choice { text = t, rect = r, group = go.GetComponent<CanvasGroup>(), action = action, glow = action != null ? WispMagnet.AddGlow(go) : System.Array.Empty<Shadow>() };
     }
+
+    static int Step(int from, int dir, int count) { if (from < 0) return dir > 0 ? 0 : count - 1; return (from + dir + count) % count; }
 
     void Open()
     {
         if (!player) player = FindFirstObjectByType<IslandThirdPersonController>();
-        open = true; busy = true; selected = 0;
+        if(player) StoryFlags.RememberPosition(player.transform);
+        open = true; busy = true;
         priorTimeScale = Time.timeScale;
         priorLockState = Cursor.lockState; priorCursorVisible = Cursor.visible;
         Cursor.lockState = CursorLockMode.None; Cursor.visible = true;
+        magnet.Reset();
+        foreach (var c in items) c.heat = 0;
+        magnet.Selected = 0; keyboardSelection = true; pointerSeen = false;   // RESUME starts focused, as before
+        {
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(root, WishboundInput.Pointer, null, out previousPointer);
+            pointerSeen = true;
+        }
+        WispCursor.ScreenOverride = RectTransformUtility.WorldToScreenPoint(null, items[0].rect.position);
         Refresh();
         StartCoroutine(Fade(0f, 1f, () => { busy = false; }));
     }
@@ -109,6 +122,7 @@ public sealed class PauseMenu : MonoBehaviour
     void Close()
     {
         busy = true;
+        WispCursor.ScreenOverride = null;   // the wisp drifts back to the mouse while the screen fades
         StartCoroutine(Fade(1f, 0f, () =>
         {
             open = false; busy = false;
@@ -118,13 +132,26 @@ public sealed class PauseMenu : MonoBehaviour
         }));
     }
 
+    void OpenProgress()
+    {
+        panel.gameObject.SetActive(false);
+        progressPage=WishProgressPage.Open(root,font,changed=>{
+            progressPage=null;pageClosedFrame=Time.frameCount;
+            panel.gameObject.SetActive(true);magnet.Reset();
+            if(!changed)return;
+            StoryFlags.NewDemoRun(); Time.timeScale=1; open=false;
+            Shader.SetGlobalFloat("_WishMenuBlur",0);WispCursor.ScreenOverride=null;
+            WishboundIntro.QueueFinaleTitle();Destroy(gameObject);
+            UnityEngine.SceneManagement.SceneManager.LoadSceneAsync(UnityEngine.SceneManagement.SceneManager.GetActiveScene().path);
+        });
+    }
     void Resume() { if (!busy) Close(); }
 
     void RequestQuit()
     {
         if (busy) return;
         busy = true;   // input is dead from here: Update() returns while busy and the farewell canvas swallows clicks
-        selected = -1;
+        magnet.Reset();
         // the wisp leaves from the QUIT button, then the screen fades out and the game really exits
         Vector2 screen = RectTransformUtility.WorldToScreenPoint(null, items[items.Count - 1].rect.position);
         Cursor.lockState = CursorLockMode.None; Cursor.visible = false;
@@ -142,63 +169,55 @@ public sealed class PauseMenu : MonoBehaviour
             float k = Mathf.SmoothStep(0, 1, t / D);
             float a = Mathf.Lerp(from, to, k);
             panelGroup.alpha = a; panelGroup.blocksRaycasts = panelGroup.interactable = a > .5f;
-            dim.color = new Color(0, 0, 0, a * .72f);
+            Shader.SetGlobalFloat("_WishMenuBlur",a);
+            dim.color = new Color(.012f,.019f,.042f,a*.68f);
             yield return null;
         }
         panelGroup.alpha = to; panelGroup.blocksRaycasts = panelGroup.interactable = to > .5f;
-        dim.color = new Color(0, 0, 0, to * .72f);
+        Shader.SetGlobalFloat("_WishMenuBlur",to);
+        dim.color = new Color(.012f,.019f,.042f,to*.68f);
         onDone?.Invoke();
     }
 
     void Update()
     {
-        if (!open || busy)
-        {
-            if (!open) return;
-        }
-        if (busy) return;
+        if (!open || busy || progressPage || pageClosedFrame==Time.frameCount) return;
 
-        var kb = Keyboard.current;
-        if (kb != null)
+
+
+
+        Vector2 pointer = Vector2.zero;
         {
-            if (kb.escapeKey.wasPressedThisFrame) { Resume(); return; }
-            if (kb.downArrowKey.wasPressedThisFrame || kb.tabKey.wasPressedThisFrame) selected = (selected + 1) % items.Count;
-            if (kb.upArrowKey.wasPressedThisFrame) selected = (selected + items.Count - 1) % items.Count;
-            if (selected >= 0 && (kb.leftArrowKey.wasPressedThisFrame || kb.rightArrowKey.wasPressedThisFrame))
-            {
-                float sign = kb.leftArrowKey.wasPressedThisFrame ? -1 : 1;
-                if (selected == 1) ChangeVolume(sign * .1f);
-                else if (selected == 2) ChangeSensitivity(sign * .02f);
-                else if (selected == 3) items[selected].action();
-            }
-            if (selected >= 0 && kb.enterKey.wasPressedThisFrame) items[selected].action?.Invoke();
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(root, WishboundInput.Pointer, null, out pointer);
+            if (!pointerSeen) { previousPointer = pointer; pointerSeen = true; }
+            if ((pointer - previousPointer).sqrMagnitude > 2f) keyboardSelection = false;   // the mouse takes over once it moves
+            previousPointer = pointer;
         }
-        var mouse = Mouse.current;
-        if (mouse != null)
+
         {
-            Vector2 screen = mouse.position.ReadValue();
-            Vector2 local; RectTransformUtility.ScreenPointToLocalPointInRectangle(root, screen, null, out local);
-            for (int i = 0; i < items.Count; i++)
+            if (WishboundInput.Pressed(Key.Escape, KeyCode.Escape)) { Resume(); return; }
+            if (WishboundInput.Pressed(Key.DownArrow, KeyCode.DownArrow) || WishboundInput.Pressed(Key.Tab, KeyCode.Tab)) { magnet.Selected = Step(magnet.Selected, 1, items.Count); keyboardSelection = true; }
+            if (WishboundInput.Pressed(Key.UpArrow, KeyCode.UpArrow)) { magnet.Selected = Step(magnet.Selected, -1, items.Count); keyboardSelection = true; }
+            if (magnet.Selected >= 0 && (WishboundInput.Pressed(Key.LeftArrow, KeyCode.LeftArrow) || WishboundInput.Pressed(Key.RightArrow, KeyCode.RightArrow)))
             {
-                if (string.IsNullOrEmpty(items[i].text.text) && items[i].action == null) continue;
-                Vector2 centre = root.InverseTransformPoint(items[i].rect.position);
-                float halfW = items[i].rect.rect.width * .5f, halfH = 28;
-                if (Mathf.Abs(local.x - centre.x) < halfW && Mathf.Abs(local.y - centre.y) < halfH) { selected = i; if (mouse.leftButton.wasPressedThisFrame) items[i].action?.Invoke(); }
+                float sign = WishboundInput.Pressed(Key.LeftArrow, KeyCode.LeftArrow) ? -1 : 1;
+                if (magnet.Selected == 1) ChangeVolume(sign * .1f);
+                else if (magnet.Selected == 2) ChangeSensitivity(sign * .02f);
+                else if (magnet.Selected == 3) items[3].action();
             }
         }
-        for (int i = 0; i < items.Count; i++)
-        {
-            var c = items[i];
-            if (c.action == null) continue;
-            c.heat = Mathf.Lerp(c.heat, selected == i ? 1 : 0, 1 - Mathf.Exp(-9 * Time.unscaledDeltaTime));
-            c.text.color = Color.Lerp(Color.white, new Color(1, .89f, .57f), c.heat);
-            c.rect.localScale = Vector3.one * (1 + .045f * c.heat);
-            foreach (var s in c.glow) s.effectColor = new Color(1, .66f, .25f, c.heat * .65f);
-        }
+
+        magnet.Track(root, items, pointer, Time.unscaledDeltaTime, keyboardSelection);
+        WispCursor.ScreenOverride = magnet.ScreenPoint(root);
+
+        int sel = magnet.Selected;
+        bool clicked = WishboundInput.PrimaryPressed;
+        bool entered = WishboundInput.Pressed(Key.Enter, KeyCode.Return);
+        if (sel >= 0 && (clicked || entered)) { WorldSound.Menu("Select"); items[sel].action?.Invoke(); }
     }
 
-    void ChangeVolume(float delta) { WishboundSettings.SetVolume(WishboundSettings.Volume + delta); Refresh(); }
-    void ChangeSensitivity(float delta) { WishboundSettings.SetSensitivity(WishboundSettings.Sensitivity + delta, player); Refresh(); }
+    void ChangeVolume(float delta) { WorldSound.Menu("Adjust"); WishboundSettings.SetVolume(WishboundSettings.Volume + delta); Refresh(); }
+    void ChangeSensitivity(float delta) { WorldSound.Menu("Adjust"); WishboundSettings.SetSensitivity(WishboundSettings.Sensitivity + delta, player); Refresh(); }
 
     void Refresh()
     {

@@ -10,13 +10,16 @@ using UnityEngine.Rendering;
 /// </summary>
 public class GhibliBatch
 {
+    readonly Matrix4x4[] visible = new Matrix4x4[1023];
     public Mesh mesh;
     public Material[] mats;
     public ShadowCastingMode shadows = ShadowCastingMode.On;
     public int Count { get; private set; }
 
-    struct Chunk { public Matrix4x4[] m; public int n; public Matrix4x4[] far; public int farN; public Bounds b; }
+    struct Chunk { public Matrix4x4[] m; public int n; public Matrix4x4[] far; public int farN; public Bounds b; public Matrix4x4[] baseM, leafM; public bool touched; }
     readonly List<Chunk> chunks = new List<Chunk>();
+
+    internal IReadOnlyList<Matrix4x4> Instances => src;
 
     public GhibliBatch(Mesh mesh, Material[] mats) { this.mesh = mesh; this.mats = mats; }
 
@@ -56,7 +59,7 @@ public class GhibliBatch
                 var arr = lst.GetRange(i, n).ToArray();
                 Vector3 mn = arr[0].GetColumn(3), mx = mn;
                 for (int j = 1; j < n; j++) { Vector3 q = arr[j].GetColumn(3); mn = Vector3.Min(mn, q); mx = Vector3.Max(mx, q); }
-                var c = new Chunk { m = arr, n = n, b = new Bounds((mn + mx) * 0.5f + Vector3.up * pad.y * 0.5f, (mx - mn) + pad) };
+                var c = new Chunk { m = arr, n = n, baseM = (Matrix4x4[])arr.Clone(), b = new Bounds((mn + mx) * 0.5f + Vector3.up * pad.y * 0.5f, (mx - mn) + pad) };
                 if (farEvery > 1)
                 {
                     var far = new List<Matrix4x4>(n / farEvery + 1);
@@ -68,10 +71,59 @@ public class GhibliBatch
             }
     }
 
+    /// <summary>
+    /// Leans instances about their trunk base (the comet's blast). lean(p) gives the angle in radians for an instance
+    /// standing at p, and the lean points away from origin. reset puts back every instance this has leaned.
+    /// Chunks outside reach are skipped, so nothing is paid for outside the blast.
+    /// </summary>
+    public void Pose(System.Func<Vector3, float> lean, Vector3 origin, float reach, bool reset = false, System.Func<Vector3, float> flutter = null)
+    {
+        if (mesh == null || chunks.Count == 0) return;
+        float reach2 = reach * reach;
+        for (int i = 0; i < chunks.Count; i++)
+        {
+            var c = chunks[i];
+            if (reset ? !c.touched : c.b.SqrDistance(origin) > reach2) continue;
+            bool any = false;
+            if (!reset && flutter != null && c.leafM == null) c.leafM = new Matrix4x4[c.n];
+            for (int j = 0; j < c.n; j++)
+            {
+                Matrix4x4 b = c.baseM[j];
+                Vector3 p = b.GetColumn(3);
+                float a = reset ? 0f : lean(p);
+                float leaf = !reset && flutter != null ? flutter(p) : 0f;
+                if (a == 0f && leaf == 0f)
+                {
+                    c.m[j] = b;
+                    if (c.leafM != null) c.leafM[j] = b;
+                    continue;
+                }
+                any = true;
+                Vector3 away = p - origin; away.y = 0f;
+                if (away.sqrMagnitude < 1e-4f) away = Vector3.right;
+                Vector3 axis = Vector3.Cross(Vector3.up, away.normalized);
+                Matrix4x4 pivot = Matrix4x4.Translate(p);
+                c.m[j] = pivot * Matrix4x4.Rotate(Quaternion.AngleAxis(a * Mathf.Rad2Deg, axis)) * pivot.inverse * b;
+                if (c.leafM != null)
+                {
+                    Vector3 crown = c.m[j].MultiplyPoint3x4(Vector3.up * (mesh.bounds.max.y * .62f));
+                    var leanCrown = Quaternion.AngleAxis(leaf * Mathf.Rad2Deg, axis + Vector3.up * .35f);
+                    c.leafM[j] = Matrix4x4.Translate(crown) * Matrix4x4.Rotate(leanCrown) *
+                        Matrix4x4.Translate(-crown) * c.m[j];
+                }
+            }
+            if (c.far != null)
+                for (int j = 0; j < c.n; j += srcFarEvery)
+                    c.far[j / srcFarEvery] = srcFarScale == 1f ? c.m[j] : c.m[j] * Matrix4x4.Scale(Vector3.one * srcFarScale);
+            c.touched = any;
+            chunks[i] = c;
+        }
+    }
+
     /// <param name="maxDist">chunks farther than this are skipped</param>
     /// <param name="nearDist">beyond this distance the thinned far array is drawn (if one exists)</param>
     /// <param name="keepDist">chunks within this distance are drawn even when off-screen (so shadows never pop)</param>
-    public void Draw(Vector3 camPos, Plane[] planes, float maxDist, float nearDist, float keepDist, Camera camera = null)
+    public void Draw(Vector3 camPos, Plane[] planes, float maxDist, float nearDist, float keepDist, Camera camera = null, float sightline = 0f)
     {
         if (mesh == null || mats == null || chunks.Count == 0) return;
         float maxD2 = maxDist * maxDist, nearD2 = nearDist * nearDist, keepD2 = keepDist * keepDist;
@@ -89,7 +141,28 @@ public class GhibliBatch
             {
                 var mat = mats[Mathf.Min(s, mats.Length - 1)];
                 if (mat == null) continue;
-                Graphics.DrawMeshInstanced(mesh, s, mat, arr, n, null, shadows, true, 0, camera);
+                bool foliage = !useFar && c.touched && c.leafM != null &&
+                    mat.name.IndexOf("leaves", System.StringComparison.OrdinalIgnoreCase) >= 0;
+                var matrices = foliage ? c.leafM : arr;
+                int count = n;
+                if (sightline > 0 && camera && d2 < (sightline+24)*(sightline+24))
+                {
+                    count = 0;
+                    var view = camera.transform;
+                    for (int j=0;j<n;j++)
+                    {
+                        var m = matrices[j];
+                        Vector3 centre = view.InverseTransformPoint(m.MultiplyPoint3x4(mesh.bounds.center));
+                        float radius = mesh.bounds.extents.magnitude * m.lossyScale.magnitude * .57735f;
+                        if (centre.z > -radius && centre.z < sightline &&
+                            Mathf.Abs(centre.x) < radius + Mathf.Max(0,centre.z)*.12f &&
+                            Mathf.Abs(centre.y) < radius + Mathf.Max(0,centre.z)*.08f) continue;
+                        visible[count++] = m;
+                    }
+                    matrices = visible;
+                }
+                if (count == 0) continue;
+                Graphics.DrawMeshInstanced(mesh, s, mat, matrices, count, null, shadows, true, 0, camera);
             }
         }
     }

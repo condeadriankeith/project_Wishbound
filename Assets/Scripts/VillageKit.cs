@@ -78,7 +78,7 @@ public static partial class VillageKit
     /// <summary>Unit box (-.5..+.5) with chamfered edges so the rims catch the light.</summary>
     public static Mesh ChamferBox(float bevel = .12f)
     {
-        string key = "cb" + bevel; if (meshes.TryGetValue(key, out var m)) return m;
+        string key = "cb" + bevel; if (meshes.TryGetValue(key, out var m) && m) return m;
         float a = .5f, b = .5f - bevel;
         var v = new List<Vector3>(); var t = new List<int>();
         void Quad(Vector3 p0, Vector3 p1, Vector3 p2, Vector3 p3) { int i = v.Count; v.Add(p0); v.Add(p1); v.Add(p2); v.Add(p3); t.AddRange(new[] { i, i + 1, i + 2, i, i + 2, i + 3 }); }
@@ -112,7 +112,7 @@ public static partial class VillageKit
     /// <summary>Faceted, slightly irregular rock / cobble / cabbage-core blob (unit radius).</summary>
     public static Mesh Blob(int seed, float lumpy = .18f, int rings = 4, int segs = 7)
     {
-        string key = "blob" + seed + lumpy + rings + segs; if (meshes.TryGetValue(key, out var m)) return m;
+        string key = "blob" + seed + lumpy + rings + segs; if (meshes.TryGetValue(key, out var m) && m) return m;
         var rng = new System.Random(seed);
         var v = new List<Vector3>(); var t = new List<int>();
         var grid = new Vector3[rings + 1, segs];
@@ -128,8 +128,8 @@ public static partial class VillageKit
             {
                 int n = (sgi + 1) % segs;
                 Vector3 a = grid[r, sgi], b = grid[r, n], c = grid[r + 1, sgi], d = grid[r + 1, n];
-                int i = v.Count; v.Add(a); v.Add(c); v.Add(b); t.AddRange(new[] { i, i + 1, i + 2 });
-                i = v.Count; v.Add(b); v.Add(c); v.Add(d); t.AddRange(new[] { i, i + 1, i + 2 });
+                int i = v.Count; v.Add(a); v.Add(c); v.Add(b); t.AddRange(new[] { i, i + 2, i + 1 });
+                i = v.Count; v.Add(b); v.Add(c); v.Add(d); t.AddRange(new[] { i, i + 2, i + 1 });
             }
         m = new Mesh { name = "Blob" }; m.SetVertices(v); m.SetTriangles(t, 0); m.RecalculateNormals(); m.RecalculateBounds();
         meshes[key] = m; return m;
@@ -138,7 +138,7 @@ public static partial class VillageKit
     /// <summary>Faceted cylinder / ring (outer radius 1, height 1, inner radius 'hole', 0 = solid).</summary>
     public static Mesh Ring(int segs, float hole)
     {
-        string key = "ring" + segs + hole; if (meshes.TryGetValue(key, out var m)) return m;
+        string key = "ring" + segs + hole; if (meshes.TryGetValue(key, out var m) && m) return m;
         var v = new List<Vector3>(); var t = new List<int>();
         void Q(Vector3 a, Vector3 b, Vector3 c, Vector3 d) { int i = v.Count; v.Add(a); v.Add(b); v.Add(c); v.Add(d); t.AddRange(new[] { i, i + 1, i + 2, i, i + 2, i + 3 }); }
         for (int s = 0; s < segs; s++)
@@ -160,7 +160,7 @@ public static partial class VillageKit
     /// <summary>Flat irregular disc (for puddles, water surfaces, soil beds) - unit radius, lying in XZ.</summary>
     public static Mesh Disc(int seed, float wobble = .25f, int segs = 14)
     {
-        string key = "disc" + seed + wobble + segs; if (meshes.TryGetValue(key, out var m)) return m;
+        string key = "disc" + seed + wobble + segs; if (meshes.TryGetValue(key, out var m) && m) return m;
         var rng = new System.Random(seed);
         var v = new List<Vector3> { Vector3.zero }; var t = new List<int>();
         float p1 = (float)rng.NextDouble() * 6, p2 = (float)rng.NextDouble() * 6;
@@ -178,7 +178,7 @@ public static partial class VillageKit
     /// <summary>Broad painted leaf card (double sided) for cabbages and vines.</summary>
     public static Mesh Leaf()
     {
-        if (meshes.TryGetValue("leaf", out var m)) return m;
+        if (meshes.TryGetValue("leaf", out var m) && m) return m;
         var v = new List<Vector3> { new Vector3(0, 0, 0), new Vector3(-.45f, .08f, .45f), new Vector3(0, .18f, 1), new Vector3(.45f, .08f, .45f) };
         var t = new List<int> { 0, 1, 2, 0, 2, 3, 2, 1, 0, 3, 2, 0 };
         m = new Mesh { name = "Leaf" }; m.SetVertices(v); m.SetTriangles(t, 0); m.RecalculateNormals(); m.RecalculateBounds();
@@ -345,7 +345,8 @@ public static partial class VillageKit
     public static GameObject Fence(IList<Vector3> pts, Transform parent, int seed = 1)
     {
         var rng = new System.Random(seed);
-        var root = Root("Fence", pts[0], parent); root.transform.position = Vector3.zero;
+        var root = Root("Fence", pts[0], parent);
+        var frame = root.transform;
         var box = ChamferBox(.2f); var wood = Mat(Timber); var woodD = Mat(TimberDark);
         for (int s = 0; s < pts.Count - 1; s++)
         {
@@ -353,17 +354,28 @@ public static partial class VillageKit
             float len = Vector3.Distance(a, b); int spans = Mathf.Max(1, Mathf.RoundToInt(len / 2.2f));
             for (int i = 0; i <= spans; i++)
             {
-                if (s > 0 && i == 0) continue;
                 Vector3 p = Ground(Vector3.Lerp(a, b, i / (float)spans));
-                var post = Part("Post", box, woodD, root.transform, p + Vector3.up * .55f, Quaternion.Euler(R(rng, -4, 4), R(rng, 0, 90), R(rng, -4, 4)), new Vector3(.16f, 1.1f, .16f));
-                post.AddComponent<BoxCollider>();
+                if (s == 0 || i > 0)
+                {
+                    bool closesLoop = s == pts.Count - 2 && i == spans && (pts[0] - pts[pts.Count - 1]).sqrMagnitude < .001f;
+                    if (!closesLoop)
+                    {
+                        var lean = Quaternion.Euler(R(rng, -4, 4), R(rng, 0, 90), R(rng, -4, 4));
+                        var post = Part("Post", box, woodD, frame, frame.InverseTransformPoint(p + Vector3.up * .55f),
+                            Quaternion.Inverse(frame.rotation) * lean, new Vector3(.16f, 1.1f, .16f));
+                        post.AddComponent<BoxCollider>();
+                    }
+                }
                 if (i > 0)
                 {
                     Vector3 q = Ground(Vector3.Lerp(a, b, (i - 1) / (float)spans));
                     Vector3 mid = (p + q) * .5f; Vector3 d = p - q;
-                    var rot = Quaternion.LookRotation(d.normalized);
+                    if (d.sqrMagnitude < .0001f) continue;
+                    var rot = Quaternion.Inverse(frame.rotation) * Quaternion.LookRotation(d.normalized);
                     for (int r = 0; r < 2; r++)
-                        Part("Rail", box, wood, root.transform, mid + Vector3.up * (.45f + r * .38f + R(rng, -.04f, .04f)), rot * Quaternion.Euler(0, 0, R(rng, -3, 3)), new Vector3(.1f, .1f, d.magnitude + .15f));
+                        Part("Rail", box, wood, frame,
+                            frame.InverseTransformPoint(mid + Vector3.up * (.45f + r * .38f + R(rng, -.04f, .04f))),
+                            rot * Quaternion.Euler(0, 0, R(rng, -3, 3)), new Vector3(.1f, .1f, d.magnitude + .15f));
                 }
             }
             if (rng.NextDouble() < .6) Wildflowers(a + (b - a) * .1f, root.transform, seed + s, 4);
@@ -547,10 +559,11 @@ public static partial class VillageKit
     }
 
     /// <summary>Stepped stone-rimmed fishpond: shallow turquoise edge -> deep blue centre, mossy boulders, koi, a dock.</summary>
-    public static GameObject Pond(Vector3 pos, float radius, Transform parent, int seed = 1)
+    public static GameObject Pond(Vector3 pos, float radius, Transform parent, Vector3 bridgeDirection, int seed = 1)
     {
         var rng = new System.Random(seed);
         var root = Root("Fishpond", pos, parent); var tr = root.transform;
+        tr.rotation = Quaternion.FromToRotation(Vector3.right, bridgeDirection);
         Part("PondBed", Disc(seed, .18f, 18), Mat(new Color(.2f, .24f, .2f), default, .1f, .1f), tr, new Vector3(0, .03f, 0), Quaternion.identity, new Vector3(radius * 1.05f, 1, radius * .84f));
         Part("PondWater", Disc(seed, .18f, 18), WaterMat(true, 2.2f), tr, new Vector3(0, .09f, 0), Quaternion.identity, new Vector3(radius, 1, radius * .8f));
         int boulders = Mathf.RoundToInt(radius * 6);
@@ -558,14 +571,19 @@ public static partial class VillageKit
         {
             float a = i * Mathf.PI * 2 / boulders + R(rng, -.1f, .1f);
             Vector3 p = new Vector3(Mathf.Cos(a) * radius * 1.05f, .1f, Mathf.Sin(a) * radius * .82f);
+            // Keep the bridge approaches and the entire deck clear of the solid rim stones.
+            if (Mathf.Abs(p.z) < 1.85f) continue;
             var b = Part("Boulder", Blob(rng.Next(), .25f), Mat(rng.NextDouble() < .4 ? Moss : Stone), tr, p, Quaternion.Euler(0, R(rng, 0, 360), 0), new Vector3(R(rng, .35f, .6f), R(rng, .25f, .4f), R(rng, .3f, .5f)));
             b.AddComponent<SphereCollider>().radius = 1;
             if (rng.NextDouble() < .35) Part("Foam", Ring(10, .8f), Mat(new Color(.95f, .97f, 1f), new Color(.15f, .15f, .15f)), tr, p + Vector3.down * .03f, Quaternion.identity, new Vector3(.55f, .02f, .55f));
         }
         // a little timber dock jutting over the water + a fish trap and bucket
         var box = ChamferBox(.15f);
-        Vector3 dockAt = new Vector3(radius * .7f, .3f, 0);
-        Part("Dock", box, Mat(Timber), tr, dockAt, Quaternion.identity, new Vector3(1.8f, .1f, .9f)).AddComponent<BoxCollider>();
+        Vector3 dockAt = new Vector3(0, .3f, radius * .86f);
+        VillageCraft.Landing(tr,dockAt);
+        var deck = new GameObject("Dock walking surface").AddComponent<BoxCollider>();
+        deck.transform.SetParent(tr,false); deck.transform.localPosition=dockAt+Vector3.up*.06f;
+        deck.size=new Vector3(1.8f,.09f,.96f);
         for (int i = 0; i < 4; i++) Part("Piling", Ring(6, 0), Mat(TimberDark), tr, dockAt + new Vector3(i < 2 ? -.8f : .8f, -.6f, i % 2 == 0 ? -.4f : .4f), Quaternion.identity, new Vector3(.08f, .9f, .08f));
         Part("FishTrap", Ring(8, .85f), Mat(Bamboo), tr, dockAt + new Vector3(.5f, .05f, .2f), Quaternion.Euler(0, 0, 90), new Vector3(.18f, .5f, .18f));
         RainBarrel(tr.position + tr.TransformDirection(dockAt + new Vector3(.4f, 0, -.3f)), tr, seed + 7).transform.localScale = Vector3.one * .6f;

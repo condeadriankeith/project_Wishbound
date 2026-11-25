@@ -19,7 +19,6 @@ public class StarRadiance : MonoBehaviour
         Instance = this;
         fx = GetComponent<StarOrbFX>();
         controller = GetComponentInParent<IslandThirdPersonController>();
-        if (Application.isEditor) StoryFlags.ResetForEditorSession();
         alignment = StoryFlags.Alignment;
         if (fx) { baseLight = fx.lightIntensity; baseHalo = fx.haloSize; }
     }

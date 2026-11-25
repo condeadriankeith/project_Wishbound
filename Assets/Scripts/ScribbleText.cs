@@ -77,17 +77,36 @@ public static class WishboundUI
     }
 
     /// <summary>Creates a white, unstyled, scribbling label. anchor is in 0..1 screen space.</summary>
-    public static Text Label(Transform parent, string name, string content, int size, Vector2 anchor, Vector2 box)
+    public static Text Label(Transform parent, string name, string content, int size, Vector2 anchor, Vector2 box, bool shadow = true)
     {
         var go = new GameObject(name, typeof(RectTransform));
         go.transform.SetParent(parent ? parent : Canvas.transform, false);
         var r = (RectTransform)go.transform; r.anchorMin = r.anchorMax = anchor; r.sizeDelta = box;
+        if (!parent && anchor.y <= .22f) go.AddComponent<LetterboxLift>().baseY = anchor.y;
         var t = go.AddComponent<Text>();
         t.font = Font ? Font : Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         t.text = content; t.fontSize = size; t.color = Color.white; t.alignment = TextAnchor.MiddleCenter;
         t.horizontalOverflow = HorizontalWrapMode.Overflow; t.verticalOverflow = VerticalWrapMode.Overflow; t.raycastTarget = false;
         go.AddComponent<ScribbleText>();
+        if (shadow)
+        {
+            var shade = go.AddComponent<Shadow>();
+            shade.effectColor = new Color(.025f,.018f,.03f,.72f);
+            shade.effectDistance = new Vector2(1.5f,-2f);
+        }
         go.AddComponent<CanvasGroup>().alpha = 0;
         return t;
+    }
+}
+
+
+/// <summary>Keeps low-screen text just above the cutscene letterbox bars (uniform shift so stacked labels keep their spacing).</summary>
+public sealed class LetterboxLift : MonoBehaviour
+{
+    public float baseY;
+    void LateUpdate()
+    {
+        var r = (RectTransform)transform; float y = baseY + CutsceneDirector.BarFraction;
+        if (!Mathf.Approximately(r.anchorMin.y, y)) { r.anchorMin = new Vector2(r.anchorMin.x, y); r.anchorMax = new Vector2(r.anchorMax.x, y); }
     }
 }

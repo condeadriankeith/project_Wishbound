@@ -20,8 +20,8 @@ public class WishboundIntro : MonoBehaviour
     public bool playInEditor = true;
     [Tooltip("Builds: play only on the first launch.")]
     public bool onlyFirstLaunchInBuilds = true;
-    
-    
+
+
 
     [Header("Scene references (auto-found when empty)")]
     public IslandThirdPersonController player;
@@ -45,7 +45,7 @@ public class WishboundIntro : MonoBehaviour
     public AudioClip celestialChord;
     public AudioClip impactBoom;
     public AudioClip awakenTone;
-    [Tooltip("Synth impact: sub boom + crack + rumble, transient at t=0 (Assets/Audio/Wishbound/Comet_ImpactSub.wav).")] public AudioClip impactSub;
+    [Tooltip("Recorded thunder: low-frequency impact, transient at t=0 (Assets/Audio/Wishbound/Comet_ImpactSub.wav).")] public AudioClip impactSub;
     [Tooltip("Rising roar that builds through the descent and peaks at descentRiserClimax seconds (Comet_DescentRiser.wav).")] public AudioClip descentRiser;
     [Tooltip("Comet_Impact.wav has ~1 s of silence before the hit; start playback here so the boom lands on the contact frame.")] public float impactBoomStart = .98f;
     public float descentRiserClimax = 15.5f;
@@ -113,7 +113,10 @@ public class WishboundIntro : MonoBehaviour
     }
     public string SequencePhase { get; private set; } = "Loading";
     WishboundTitleMenu titleMenu;
+    float nextPositionSave;
     bool returningLaunch;
+    void OnApplicationPause(bool paused) { if (paused && player) StoryFlags.RememberPosition(player.transform); }
+    void OnApplicationQuit() { if (player) StoryFlags.RememberPosition(player.transform); }
 
     // runtime
     CinemachineCamera introCam;
@@ -129,6 +132,10 @@ public class WishboundIntro : MonoBehaviour
     GameObject shafts;
 
     // Comet title hold state
+    static bool finaleTitleQueued;
+    bool finaleArrival;
+    public static void QueueFinaleTitle() => finaleTitleQueued = true;
+
     bool titleDone, replayFromPause; AudioSource riserSource;
     ParticleSystem impactDust, impactDebrisPS, impactShockwave;
 
@@ -138,7 +145,10 @@ public class WishboundIntro : MonoBehaviour
         Debug.Log($"[WishboundIntro] Awake() - isEditor={Application.isEditor} playInEditor={playInEditor} onlyFirstLaunchInBuilds={onlyFirstLaunchInBuilds}");
         Instance = this;
         bool play = !Application.isEditor || playInEditor;
-        returningLaunch = !Application.isEditor && onlyFirstLaunchInBuilds && PlayerPrefs.GetInt("Wishbound.IntroSeen", 0) != 0;
+        finaleArrival = finaleTitleQueued;
+        finaleTitleQueued = false;
+        bool replay = WishboundEpilogue.ConsumeReplayRequest();
+        returningLaunch = !replay && !Application.isEditor && onlyFirstLaunchInBuilds && PlayerPrefs.GetInt("Wishbound.IntroSeen", 0) != 0;
         Debug.Log($"[WishboundIntro] Awake() - play={play} returningLaunch={returningLaunch} enabled={enabled}");
         if (!play) { enabled = false; Debug.Log($"[WishboundIntro] DISABLED"); return; }
         // TEST SYNTAX ERROR - this should cause a compilation error
@@ -175,16 +185,15 @@ public class WishboundIntro : MonoBehaviour
         yield return null;
         Cursor.lockState = CursorLockMode.None; Cursor.visible = false;
         WishboundSettings.Apply(player);
-        CutsceneSkip.Begin(() => skipRequested = true);
-        if (returningLaunch)
+        // no skip tag for the opening sequence: it plays through (the dev shortcut can still set skipRequested)
+        if (finaleArrival || returningLaunch)
         {
-            if (crater && !crater.Revealed) crater.Reveal(false);
-            BirthStar(CraterCenter());
             if (dayNight) dayNight.scriptedHour = shot3Hour;
-            Pose(islandViewPosition, Quaternion.LookRotation(islandViewTarget-islandViewPosition), islandViewFov);
-            fade.color = Color.clear;
+            Pose(islandViewPosition, Quaternion.LookRotation(islandViewTarget - islandViewPosition), islandViewFov);
+            StartCoroutine(FadeFinaleTitle());
             yield return ShowTitleMenu();
-            yield return Finish();
+            replayFromPause = true;
+            yield return RunFullSequence();
             yield break;
         }
         SequencePhase = "Grass";
@@ -226,8 +235,13 @@ public class WishboundIntro : MonoBehaviour
     {
         if (IsPlaying && !shafts) { var a = GameObject.Find("Atmosphere"); var t = a ? a.transform.Find("Shafts") : null; if (t) { shafts = t.gameObject; shafts.SetActive(false); } }
 
+        if (!IsPlaying && player && player.enabled && Time.unscaledTime>=nextPositionSave)
+        {
+            nextPositionSave=Time.unscaledTime+5f;
+            StoryFlags.RememberPosition(player.transform);
+        }
         // ESC pause during gameplay (after intro finishes)
-        if (!IsPlaying && !CutsceneSkip.JustFired && player && player.enabled && Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
+        if (!IsPlaying && !PauseMenu.IsOpen && !CutsceneSkip.JustFired && player && player.enabled && WishboundInput.Pressed(Key.Escape, KeyCode.Escape))
         {
             PauseMenu.Toggle();
         }
@@ -373,7 +387,7 @@ public class WishboundIntro : MonoBehaviour
     AudioSource aWind, aForest, aRumble;
     void SetupAudio()
     {
-        aWind = Source(windRustle, true); aForest = Source(forestNight, true); aRumble = Source(skyRumble, true);
+        aWind = Source(windRustle, true); aForest = Source(forestNight, true);
         if (windRustle) aWind.Play();
     }
     void OneShot(AudioClip c, float v = 1, float pitch = 1)
@@ -390,12 +404,42 @@ public class WishboundIntro : MonoBehaviour
         var pollen = BuildPollen(s1Focus.position);
         var glints = BuildSunGlints(s1Focus.position, s1Cam.forward);
         Dof(true, Vector3.Distance(s1Cam.position, s1Focus.position), 50, 9f);
+        var meadow = FindFirstObjectByType<IslandStylizedGrass>();
+        var flowers = FindFirstObjectByType<IslandStylizedFlowers>();
+        var trees = FindFirstObjectByType<IslandStylizedTrees>();
+        var clearance = FindFirstObjectByType<VillageGrassClearer>();
+        var village = FindFirstObjectByType<VillageDressing>();
+        var world = FindFirstObjectByType<VillageWorld>();
+        var loading = WishboundUI.Label(canvas.transform, "Resource progress", "", 28,
+            new Vector2(1,.1f), new Vector2(460,48));
+        loading.rectTransform.pivot = new Vector2(1,0);
+        loading.rectTransform.anchoredPosition = new Vector2(-36,12);
+        loading.alignment = TextAnchor.MiddleRight;
+        loading.GetComponent<CanvasGroup>().alpha = 1;
+        Pose(s1Cam.position, s1Cam.rotation * Quaternion.Euler(-5f,0,0), 24f);
+        if (dayNight) dayNight.scriptedHour = shot1StartHour;
+        fade.color = Color.clear;
+        int previous = -1;
+        do
+        {
+            int done = (IslandBuilder.HGrid != null ? 1 : 0) + (!meadow || !meadow.enabled || meadow.Ready ? 1 : 0)
+                + (!flowers || !flowers.enabled || flowers.Ready ? 1 : 0) + (!trees || !trees.enabled || trees.Ready ? 1 : 0)
+                + (!clearance || !clearance.enabled || clearance.cleared ? 1 : 0) + (!village || !village.enabled || village.Built ? 1 : 0)
+                + (!world || !world.enabled || world.NavReady ? 1 : 0);
+            float scatter = !meadow || !meadow.enabled || meadow.Ready ? 1f : meadow.ScatterProgress;
+            int fixedStages = done - ((!meadow || !meadow.enabled || meadow.Ready) ? 1 : 0);
+            int percent = done == 7 ? 100 : Mathf.Min(99,Mathf.FloorToInt(fixedStages * 7f + scatter * 58f));
+            if (previous != percent) loading.text = $"loading resources ({percent}%)...";
+            previous = percent;
+            yield return null;
+        } while (previous < 100);
+        Destroy(loading.gameObject);
         for (float t = 0; t < shot1Duration && !skipRequested; t += Time.deltaTime)
         {
             float k = t / shot1Duration;
-            { float bk = Mathf.SmoothStep(0, 1, t / 2.5f); barTop.rectTransform.anchorMin = new Vector2(0, Mathf.Lerp(1f, .9f, bk)); barBottom.rectTransform.anchorMax = new Vector2(1, Mathf.Lerp(0f, .1f, bk)); }
 
-            fade.color = new Color(0, 0, 0, Mathf.Max(1 - Mathf.SmoothStep(0, 1, t / 2.2f), Mathf.SmoothStep(0, 1, Mathf.InverseLerp(shot1Duration - .9f, shot1Duration, t))));
+
+            fade.color = new Color(0, 0, 0, Mathf.SmoothStep(0, 1, Mathf.InverseLerp(shot1Duration - .9f, shot1Duration, t)));
             float sunset = Ease(Mathf.InverseLerp(.05f, .95f, k));   // starts almost at once and runs the whole shot so the change is unmistakable
             if (dayNight) dayNight.scriptedHour = Mathf.Lerp(shot1StartHour, shot1EndHour, sunset);
             grade.colorFilter.value = Color.Lerp(new Color(.88f, .97f, 1f), new Color(1f, .58f, .34f), sunset);
@@ -678,9 +722,14 @@ IEnumerator Shot3()
         yield return null;
         if (stardust) { var sdm = stardust.main; sdm.startSize = new ParticleSystem.MinMaxCurve(1.2f, 4.5f); var sds = stardust.shape; sds.radius = 4f; stardust.Play(); }
         aForest.volume = .24f; aWind.volume = .13f;
-        if (skyRumble) { aRumble.volume = 0; aRumble.Play(); }
-        OneShot(celestialChord, .55f);
-        riserSource = PlayFrom(descentRiser, 1f, Mathf.Max(0f, descentRiserClimax - descentDuration));   // the roar peaks exactly as the comet reaches the ground
+        aRumble = comet.gameObject.AddComponent<AudioSource>();
+        aRumble.clip = skyRumble; aRumble.loop = true; aRumble.volume = 0;
+        aRumble.spatialBlend = 1; aRumble.dopplerLevel = 0;
+        aRumble.rolloffMode = AudioRolloffMode.Linear; aRumble.minDistance = 35; aRumble.maxDistance = 550;
+        aRumble.outputAudioMixerGroup = ambienceBus;
+        if (skyRumble) aRumble.Play();
+        MagicCue.CometDescent();
+        riserSource = PlayFrom(descentRiser, 1f, Mathf.Max(0f, descentRiserClimax - descentDuration), null, comet);   // the roar peaks exactly as the comet reaches the ground
 
         float D = Mathf.Max(6f, descentDuration);
         const float preRoll = 1.2f;
@@ -740,7 +789,8 @@ IEnumerator Shot3()
                 shard = MakeShard(new Color(.65f, .85f, 1f), .28f);
                 shard.t.position = head; shard.trail.time = 5f; shard.trail.widthMultiplier = .45f; shard.light.intensity = .6f;
                 shardVel = velocity / dt * .7f + side * 14f + Vector3.up * 16f;
-                OneShot(awakenTone, .28f, .7f);
+                PlayFrom(impactSub, .48f, 0f, head);
+                MagicCue.ShardSplit();
             }
             float since = split ? t - splitT : 0f;
             if (shard != null)
@@ -882,8 +932,8 @@ IEnumerator Shot3()
     bool AwakenPressed()
     {
         if (awakenRequested) { awakenRequested = false; return true; }
-        var kb = Keyboard.current; var gp = Gamepad.current;
-        return (kb != null && (kb.enterKey.wasPressedThisFrame || kb.spaceKey.wasPressedThisFrame)) ||
+        var gp = Gamepad.current;
+        return WishboundInput.Pressed(Key.Enter, KeyCode.Return) || WishboundInput.Pressed(Key.Space, KeyCode.Space) ||
                (gp != null && (gp.buttonSouth.wasPressedThisFrame || gp.startButton.wasPressedThisFrame));
     }
 
@@ -916,6 +966,16 @@ IEnumerator Shot4()
         // title now appears while the comet hangs in the sky (see Shot3)
     }
 
+    IEnumerator FadeFinaleTitle()
+    {
+        for (float t = 0f; t < 1.65f; t += Time.unscaledDeltaTime)
+        {
+            fade.color = Color.Lerp(Color.black, Color.clear, Mathf.SmoothStep(0f,1f,t / 1.65f));
+            yield return null;
+        }
+        fade.color = Color.clear;
+    }
+
     IEnumerator ShowTitleMenu()
     {
         SequencePhase = "Title";
@@ -927,13 +987,16 @@ IEnumerator Shot4()
         titleMenu = canvas.gameObject.AddComponent<WishboundTitleMenu>();
         titleMenu.Configure(titleRect, titleGroup, fade, player);
         yield return titleMenu.Present();
+        Debug.Log("[VerticalSlice] Title ready; waiting for PLAY.");
         while (!skipRequested && !titleMenu.PlayRequested)
         {
             if (awakenRequested) { awakenRequested=false; titleMenu.SelectPlay(); }
             yield return null;
         }
-        if (!skipRequested) { OneShot(awakenTone,.5f); yield return titleMenu.Dismiss(); }
+        Debug.Log("[VerticalSlice] PLAY accepted; dismissing title.");
+        if (!skipRequested) { MagicCue.NightSkyReveal(); yield return titleMenu.Dismiss(); }
         else titleMenu.ReleaseCursor();
+        Debug.Log("[VerticalSlice] Title dismissed; returning to comet.");
         CutsceneSkip.Suppressed = false;
     }
 
@@ -1060,7 +1123,7 @@ IEnumerator Shot4()
             float e = 1 - Mathf.Pow(1 - fall, 2);
             s.t.position = Vector3.Lerp(from, v.land, e) + new Vector3(Mathf.Sin(t * 4) * .25f, 0, Mathf.Cos(t * 3) * .25f) * (1 - e);
             s.light.intensity = Mathf.Lerp(3, 1.2f, e);
-            if (!landed && fall >= 1) { landed = true; OneShot(awakenTone, .45f, v.kind == "forge" ? .8f : v.kind == "well" ? 1.2f : 1.5f); }
+            if (!landed && fall >= 1) { landed = true; MagicCue.Layer("Magic/GleamGlow", .14f, 0f, v.kind == "forge" ? .7f : v.kind == "well" ? .85f : 1f, .05f, 1.2f, 2f); }
             float after = landed ? Mathf.Clamp01((t - d * .45f) / (d * .4f)) : 0;
             switch (v.kind)
             {
@@ -1112,10 +1175,10 @@ IEnumerator CoreImpact()
         foreach (var source in sources) if (source && source.loop) source.volume = 0;
 
         // === AAA IMPACT AUDIO LAYERING ===
-        PlayFrom(impactBoom, 1.2f, impactBoomStart);   // main boom - louder
-        PlayFrom(impactSub, 1.5f, 0f);                  // sub boom - heavier
-        if (impactDebris) OneShot(impactDebris, 1f, 0.9f); // debris rain
-        if (impactDustSettle) PlayFrom(impactDustSettle, 0.8f, 0f); // dust settle rumble
+        PlayFrom(impactBoom, .78f, impactBoomStart, c);   // main boom - louder
+        PlayFrom(impactSub, .54f, 0f, c);                  // sub boom - heavier
+        if (impactDebris) PlayFrom(impactDebris, .9f, 0f, c); // debris rain
+        if (impactDustSettle) PlayFrom(impactDustSettle, 0.8f, 0f, c); // dust settle rumble
 
         // === VISUAL IMPACT EFFECTS ===
         if (crater) { crater.formSeconds = .35f; crater.Reveal(true); }
@@ -1144,7 +1207,7 @@ IEnumerator CoreImpact()
             impactShockwave.Play(true);
         }
 
-        StartCoroutine(PunchFlash(1.0f, new Color(1f, .95f, .85f))); // longer, brighter flash
+        StartCoroutine(PunchFlash(.44f, new Color(1f, .95f, .85f))); // clear the lens before the wind reaches the trees
         StartCoroutine(ImpactLight(c));
         StartCoroutine(ImpactTimeAAA());
         StartCoroutine(BloomPulseAAA());
@@ -1182,7 +1245,7 @@ IEnumerator CoreImpact()
         {
             if (!l) yield break;
             float k = r / 2.6f;
-            l.intensity = 45f * Mathf.Exp(-r * 3.4f) + 5f * (1f - k) * (1f - k);
+            l.intensity = 37f * Mathf.Exp(-r * 4.5f) + 3f * (1f - k) * (1f - k);
             l.range = Mathf.Lerp(90f, 230f, Mathf.SmoothStep(0f, 1f, k));
             l.color = Color.Lerp(new Color(1f, .93f, .78f), new Color(1f, .6f, .3f), Mathf.SmoothStep(0f, 1f, k * 1.6f));
             yield return null;
@@ -1299,16 +1362,22 @@ IEnumerator CoreImpact()
     }
 
     /// <summary>Plays a clip starting at a given offset (to skip silent lead-ins or to line a swell up with an event).</summary>
-    AudioSource PlayFrom(AudioClip c, float v, float from)
+    AudioSource PlayFrom(AudioClip c, float v, float from, Vector3? origin = null, Transform follow = null)
     {
         if (!c) return null;
-        var s = gameObject.AddComponent<AudioSource>(); s.clip = c; s.volume = v; s.spatialBlend = 0; s.playOnAwake = false; s.outputAudioMixerGroup = sfxBus;
+        var host = new GameObject("Cinematic sound");
+        spawned.Add(host);
+        host.transform.SetParent(follow ? follow : transform, false);
+        if (origin.HasValue) host.transform.position = origin.Value;
+        var s = host.AddComponent<AudioSource>(); s.clip = c; s.volume = v;
+        s.spatialBlend = origin.HasValue || follow ? 1f : 0f;
+        s.rolloffMode = AudioRolloffMode.Linear; s.minDistance = 35f; s.maxDistance = 550f; s.dopplerLevel = 0; s.playOnAwake = false; s.outputAudioMixerGroup = sfxBus;
         s.time = Mathf.Clamp(from, 0f, Mathf.Max(0f, c.length - .05f)); s.Play();
-        Destroy(s, Mathf.Max(.2f, c.length - from + .2f));
+        Destroy(host, Mathf.Max(.2f, c.length - from + .2f));
         return s;
     }
 
-    
+
 /// <summary>Impact timing: a brief freeze on contact, then a quick ramp out of slow motion.</summary>
     IEnumerator ImpactTime()
     {
@@ -1332,7 +1401,7 @@ IEnumerator CoreImpact()
         if (bloomFx != null) { bloomFx.intensity.value = 1.8f; bloomFx.threshold.value = 1f; }
     }
 
-    
+
 static Vector3 Bezier(Vector3 a, Vector3 b, Vector3 c, float t) { float u = 1 - t; return u * u * a + 2 * u * t * b + t * t * c; }
 
     void BirthStar(Vector3 c)
@@ -1400,19 +1469,22 @@ static Vector3 Bezier(Vector3 a, Vector3 b, Vector3 c, float t) { float u = 1 - 
             fade.color = Color.clear; titleGroup.gameObject.SetActive(false); promptGroup.gameObject.SetActive(false); shake = Vector3.zero; grade.postExposure.value = 0;
             if (comet) comet.gameObject.SetActive(false);
         }
-        if (dayNight) { dayNight.storyNightHour = shot3Hour; dayNight.BeginStoryNight(); dayNight.scripted = false; }
+        float arrivalHour = dayNight ? dayNight.scriptedHour : shot3Hour;
 
         // hand-over is driven manually below: ease onto the live gameplay camera, then cut on an exact pose match
         float hb = Mathf.Max(handoverBlend, 7f);
         Vector3 hp0 = introCam.transform.position; Quaternion hr0 = introCam.transform.rotation; float hf0 = introCam.Lens.FieldOfView;
         Vector3 starPos = CraterCenter() + Vector3.up * 1.5f;
         float bloom0 = bloomFx != null ? bloomFx.intensity.value : 1.8f, ca0 = chromaFx != null ? chromaFx.intensity.value : .12f, vig0 = vignette != null ? vignette.intensity.value : .4f;
-        OneShot(celestialChord, .7f, 1.15f);
+        MagicCue.Hyperlapse();
+        if (MusicDirector.Instance) MusicDirector.Instance.Play("explore", 6f);
         // HYPERLAPSE: slow wind-up, a banking swoop straight at the star with FOV warp, chroma + bloom surge and shake, then a soft landing on the third-person camera
         for (float t = 0; t < hb; t += Time.deltaTime)
         {
             if (skipRequested && t < hb - .05f) t = hb - .05f;   // skip: jump to the end of the swoop
             float u = Mathf.Clamp01(t / hb);
+            if (dayNight) dayNight.scriptedHour = Mathf.Repeat(arrivalHour + Mathf.DeltaAngle(arrivalHour*15f,
+                dayNight.ComputerHour*15f)/15f * Ease(u),24f);
             float ke = Mathf.Pow(Ease(u), 1.35f);
             float rush = Mathf.Sin(u * Mathf.PI), rush2 = rush * rush;
             if (playerCamera)
@@ -1438,11 +1510,13 @@ static Vector3 Bezier(Vector3 a, Vector3 b, Vector3 c, float t) { float u = 1 - 
             yield return null;
         }
         shake = Vector3.zero; WideView(false);
+        if (dayNight) { dayNight.scriptedHour=dayNight.ComputerHour; dayNight.EndStoryNight(); dayNight.scripted=false; }
         introCam.Priority = -1000; yield return null; yield return null;   // poses match, so this cut is invisible
         if (player && !player.enabled) HandOverControl();
         if (brain) brain.DefaultBlend = savedBlend;
         CutsceneSkip.End();
         IsPlaying = false; SequencePhase = "Gameplay";
+        if(player) StoryFlags.RestorePosition(player.transform);
         if (shafts) shafts.SetActive(true);
         if (!Application.isEditor) { PlayerPrefs.SetInt("Wishbound.IntroSeen", 1); PlayerPrefs.Save(); }
         foreach (var s in sources) if (s) Destroy(s);
@@ -1477,7 +1551,7 @@ static Vector3 Bezier(Vector3 a, Vector3 b, Vector3 c, float t) { float u = 1 - 
         if (introCam) introCam.Priority = 100;
 
         // Reset day/night to cinematic hour
-        if (dayNight) { dayNight.scripted = true; dayNight.scriptedHour = shot1StartHour; }
+        if (dayNight) { dayNight.scripted = true; dayNight.scriptedHour = shot3Hour; }
 
         // Reset sky/fog
         WideView(true);
@@ -1506,7 +1580,7 @@ static Vector3 Bezier(Vector3 a, Vector3 b, Vector3 c, float t) { float u = 1 - 
                 if (awakenRequested) { awakenRequested = false; titleMenu.SelectPlay(); }
                 yield return null;
             }
-            if (!skipRequested) { OneShot(awakenTone, .5f); yield return titleMenu.Dismiss(); }
+            if (!skipRequested) { MagicCue.NightSkyReveal(); yield return titleMenu.Dismiss(); }
             else titleMenu.ReleaseCursor();
         }
 
@@ -1531,7 +1605,7 @@ static Vector3 Bezier(Vector3 a, Vector3 b, Vector3 c, float t) { float u = 1 - 
     {
         skipRequested = false;
         awakenRequested = false;
-        CutsceneSkip.Begin(() => skipRequested = true);
+        // no skip tag when the opening replays either
         SequencePhase = "Grass";
         yield return Shot1();
         if (!skipRequested) { Pose(s2Cam.position, s2Cam.rotation, 30f); yield return null; }

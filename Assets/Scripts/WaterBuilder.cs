@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.SceneManagement;
 
 /// <summary>Phase 3.4: builds river ribbons, lake disc, waterfall mist and a few demo logs at Play.</summary>
 public static class WaterBuilder
@@ -37,10 +38,17 @@ public static void AddFall(IList<double> xs, IList<double> ys, IList<double> zs,
         falls.Add(new Fall(pts, width, drop));
     }
 
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     static void Boot()
     {
-        if (!Application.isPlaying || root != null || UnityEngine.Object.FindAnyObjectByType<IslandBuilder>() == null) return;
+        SceneManager.sceneLoaded -= OnSceneLoaded;
+        SceneManager.sceneLoaded += OnSceneLoaded;
+    }
+
+    static void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        var island = IslandBuilder.Instance;
+        if (root != null || !island || island.gameObject.scene != scene) return;
         var rp = UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline; if (rp != null) { var f = rp.GetType().GetField("m_RequireDepthTexture", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic); if (f != null) f.SetValue(rp, true); }   // water shader needs the depth texture
         Build();
     }
@@ -85,6 +93,7 @@ public static void AddFall(IList<double> xs, IList<double> ys, IList<double> zs,
         mesh.SetVertices(V); mesh.SetUVs(0, UV); mesh.SetUVs(1, UV2); mesh.SetColors(C); mesh.SetTriangles(T, 0); mesh.RecalculateBounds();
         var go = new GameObject("RiversAndLake"); go.transform.SetParent(root.transform, false);
         go.AddComponent<MeshFilter>().sharedMesh = mesh;
+        WaterProbe.Reset();
         var mr = go.AddComponent<MeshRenderer>();
         var sh = Shader.Find("Island/GhibliRiver"); if (sh == null) sh = Shader.Find("Sprites/Default");
         mr.sharedMaterial = new Material(sh) { renderQueue = 3001 };   // after the Ocean (3000): the fan always composites OVER the sea instead of being painted over by it depending on sort distance

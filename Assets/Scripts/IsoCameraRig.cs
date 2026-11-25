@@ -215,6 +215,8 @@ public class IsoCameraRig : MonoBehaviour
 
     // ================================================================== setup helpers
 
+    IslandThirdPersonController playerController;
+
     void Resolve()
     {
         if (!vcam) vcam = GetComponent<CinemachineCamera>();
@@ -225,6 +227,7 @@ public class IsoCameraRig : MonoBehaviour
         }
         if (focus && !avatarRoot)
         {
+            playerController = focus.GetComponentInParent<IslandThirdPersonController>();
             var cc = focus.GetComponentInParent<CharacterController>();
             avatarRoot = cc ? cc.transform : focus.root;
         }
@@ -244,12 +247,13 @@ public class IsoCameraRig : MonoBehaviour
 
     void HandleRotateInput()
     {
-        if (!allowMouseOrbit) return;
-        var ms = Mouse.current;
+        if (!allowMouseOrbit || !Application.isFocused || PauseMenu.IsOpen ||
+            WishboundIntro.IsPlaying || CutsceneDirector.Active) return;
+
         if (Cursor.lockState != CursorLockMode.Locked) return;
-        if (ms != null)
+        if (!playerController || playerController.CanReadMouseLook)
         {
-            Vector2 delta = ms.delta.ReadValue();
+            Vector2 delta = WishboundInput.MouseDelta;
             if (verticalOrbit) basePitch = Mathf.Clamp(basePitch-delta.y*mouseYawSensitivity,pitchLimitMin,pitchLimitMax);
             baseYaw = Mathf.Repeat(baseYaw+delta.x*mouseYawSensitivity,360f);
         }
@@ -317,7 +321,7 @@ public class IsoCameraRig : MonoBehaviour
         float isoPitch = Mathf.Lerp(Mathf.Clamp(pitchSmooth, pitchLimitMin, pitchLimitMax), 42f, OverviewBlend);
         float sb=(1-OverviewBlend)*(1-FirstPersonBlend);
         float isoDist = zoomDistance;
-        orbital.TargetOffset = new Vector3(shoulderSide*sb,.15f*sb,0); ApplyLookUpAim();
+        orbital.TargetOffset = new Vector3(0,.15f*sb,0); ApplyLookUpAim();
 
         if (zoneBlend > 0.001f)
         {
@@ -341,7 +345,7 @@ public class IsoCameraRig : MonoBehaviour
         if (!composer) return;
         if (!composerCached) { composerBaseScreen = composer.Composition.ScreenPosition; composerCached = true; }
         var c = composer.Composition;
-        c.ScreenPosition = new Vector2(Mathf.Lerp(composerBaseScreen.x,-.13f,(1-OverviewBlend)*(1-FirstPersonBlend)), Mathf.Lerp(composerBaseScreen.y, Mathf.Clamp(lookUpAimY,-.4f,.4f), lookUpBlend*(1-zoneBlend)*(1-OverviewBlend)*(1-FirstPersonBlend)));
+        c.ScreenPosition = Vector2.Lerp(composerBaseScreen, Vector2.zero, (1-OverviewBlend)*(1-FirstPersonBlend));
         composer.Composition = c;
     }
 

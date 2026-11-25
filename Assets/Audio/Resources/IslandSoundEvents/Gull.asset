@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0f0f0fe7fcb240b0b143cfcd47541270, type: 3}
+  m_Name: Gull
+  m_EditorClassIdentifier:
+  clips:
+  - {fileID: 8300000, guid: 94ed3c07bb71473aa64d44df9ee253d5, type: 3}
+  bus: {fileID: 24310010, guid: f049443466b93e4479b4c34e9aba4b29, type: 2}
+  gain: 0.18
+  pitchSpread: 0.035
+  priority: 155
+  cooldown: 0.5
+  maxVoices: 2
+  screen: 0

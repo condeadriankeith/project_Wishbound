@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0f0f0fe7fcb240b0b143cfcd47541270, type: 3}
+  m_Name: Step
+  m_EditorClassIdentifier:
+  clips:
+  - {fileID: 8300000, guid: f64f3e31879f4a20afb169fc483f6998, type: 3}
+  - {fileID: 8300000, guid: af1b5ac127b64d869e0d6ea4180d153a, type: 3}
+  - {fileID: 8300000, guid: 22b66049b8e04a43988b4bc737349a2f, type: 3}
+  - {fileID: 8300000, guid: 32c1c56cb29b4590aa08d16a32ec2063, type: 3}
+  - {fileID: 8300000, guid: abbc525603794870959a06be43b090f6, type: 3}
+  bus: {fileID: 24310011, guid: f049443466b93e4479b4c34e9aba4b29, type: 2}
+  gain: 0.068
+  pitchSpread: 0.035
+  priority: 205
+  cooldown: 0.2
+  maxVoices: 4
+  screen: 0
